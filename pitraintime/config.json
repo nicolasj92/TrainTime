@@ -1,0 +1,13 @@
+{
+    "max_departures": 50,
+    "layout_type": 1,
+    "routes":[
+        {
+            "start": "3004736",
+            "end": "3004734"
+        },
+        {
+            "start": "3004736",
+            "end": "3024730"
+        }]
+}
