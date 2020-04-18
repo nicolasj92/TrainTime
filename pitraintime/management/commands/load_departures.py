@@ -46,3 +46,9 @@ class Command(BaseCommand):
                     connection.time_at_start, timezone.get_current_timezone()
                 ),
             )
+
+        print(
+            "Got {} connections at {}!".format(
+                len(connections), datetime.now().strftime("%H:%M")
+            )
+        )

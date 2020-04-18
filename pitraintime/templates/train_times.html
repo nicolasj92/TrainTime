@@ -7,12 +7,15 @@
         <div class="card">
             <div class="card-header" id="heading{{ end_station.hafas_id }}">
                 <h2 class="mb-0">
-                    <button class="btn btn-link" data-toggle="collapse" data-target="#collapse{{ end_station.hafas_id }}" aria-expanded="true" aria-controls="collapse{{ end_station.hafas_id }}">
+                    <button class="btn btn-link" data-toggle="collapse"
+                        data-target="#collapse{{ end_station.hafas_id }}" aria-expanded="true"
+                        aria-controls="collapse{{ end_station.hafas_id }}">
                         {{ start_station.name }} to {{ end_station.name }}
                     </button>
                 </h2>
             </div>
-            <div id="collapse{{ end_station.hafas_id }}" class="collapse show" aria-labelledby="heading{{ end_station.hafas_id }}">
+            <div id="collapse{{ end_station.hafas_id }}" class="collapse show"
+                aria-labelledby="heading{{ end_station.hafas_id }}">
                 <div class="card-body">
                     <table class="table table-hover">
                         <thead>
@@ -25,7 +28,8 @@
                         </thead>
                         {% for connection in connections %}
                         <tr>
-                            <td>{{ connection.get_timediff_from_now_min }} ({{ connection.time_at_start|time:"H:i" }})
+                            <td>{{ connection.get_timediff_from_now_min }} minutes
+                                ({{ connection.time_at_start|time:"H:i" }})
                             </td>
                             <td>{{ connection.vehicle_type }}</td>
                             <td>{{ connection.line_name }}</td>

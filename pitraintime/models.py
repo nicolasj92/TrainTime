@@ -30,4 +30,4 @@ class Connection(models.Model):
 
     def get_timediff_from_now_min(self):
         now = timezone.make_aware(datetime.now(), timezone.get_current_timezone())
-        return timesince(now, self.time_at_start)
+        return int((self.time_at_start - now).total_seconds() / 60.0)

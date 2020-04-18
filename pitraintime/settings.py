@@ -25,7 +25,7 @@ SECRET_KEY = "REMOVED"
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["raspberrypi"]
 
 CONFIG_FILEPATH = os.path.join(BASE_DIR, 'pitraintime', 'config.json')
 RMV_API_URL = "https://www.rmv.de/hapi/departureBoard?json"
@@ -42,7 +42,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     'pitraintime',
-    'rest_framework',
     'django_select2',
 ]
 
