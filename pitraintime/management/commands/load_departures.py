@@ -42,6 +42,7 @@ class Command(BaseCommand):
                 line_name=connection.line_name,
                 line_direction=connection.line_direction,
                 vehicle_type=connection.vehicle_type,
-                time_at_start=timezone.make_aware(connection.time_at_start, timezone.get_current_timezone())
+                time_at_start=timezone.make_aware(
+                    connection.time_at_start, timezone.get_current_timezone()
+                ),
             )
-

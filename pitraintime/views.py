@@ -9,13 +9,10 @@ from pitraintime.models import Connection, Station
 from pitraintime.forms import RouteSettingsForm
 from pitraintime.utils.config import TrainTimeConfig
 
-# Create your views here.
-def train_times(request):
-    # TODO can this go into models.py?
+
+def get_connections(num_entries=5):
     # TODO maybe not the best idea to always load the json file again
     config = TrainTimeConfig()
-    # TODO make parameter
-    num_entries = 5
 
     start_stations = []
     end_stations = []
@@ -40,9 +37,13 @@ def train_times(request):
         end_stations.append(end_station)
 
     route_information = zip(start_stations, end_stations, route_connections)
+    return route_information
 
+
+# Create your views here.
+def train_times(request):
+    route_information = get_connections(5)
     context = {"route_information": route_information, "page_train_times": "active"}
-    # context = {"connections": Connection.objects.all(), "page_train_times": "active"}
 
     return render(request, "train_times.html", context)
 
@@ -90,4 +91,3 @@ def save_route_settings(request):
 def about(request):
     context = {"page_about": "active"}
     return render(request, "about.html", context)
-
