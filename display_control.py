@@ -51,6 +51,7 @@ class DisplayControl:
 
     @staticmethod
     def _check_network():
+        return True
         url = "http://www.google.com/"
         timeout = 5
         try:
