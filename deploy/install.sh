@@ -39,9 +39,18 @@ elif ! grep -q '^dtparam=audio=off' "$CFG"; then
 fi
 
 echo "==> .env"
-if [[ ! -f "$REPO_DIR/display_control/.env" ]]; then
-  cp "$REPO_DIR/display_control/.env.example" "$REPO_DIR/display_control/.env"
-  echo "    created display_control/.env from example -- fill in HA_URL / HA_TOKEN etc."
+ENV="$REPO_DIR/display_control/.env"
+if [[ ! -f "$ENV" ]]; then
+  cp "$REPO_DIR/display_control/.env.example" "$ENV"
+  echo "    created display_control/.env from example -- fill in HA_* / RMV_* as needed"
+else
+  # Append settings that were added to .env.example since this .env was created
+  while IFS= read -r line; do
+    key="${line%%=*}"
+    if [[ "$line" =~ ^[A-Z_]+= ]] && ! grep -q "^$key=" "$ENV"; then
+      echo "$line" >> "$ENV"; echo "    added $key to .env"
+    fi
+  done < "$REPO_DIR/display_control/.env.example"
 fi
 
 echo "==> sudoers (lets the web UI restart the display service)"

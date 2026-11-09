@@ -1,9 +1,13 @@
 # TrainTime
 
-Software for a 64×64 RGB LED matrix on a Raspberry Pi. It has several animated display
+Software for a 64×32 or 32×32 RGB LED matrix on a Raspberry Pi. It has several display
 modes, and you switch between them from a small web page on the Pi.
 
-![Christmas mode](display_control/christmas_animation.gif)
+| | 64×32 | 32×32 |
+|---|---|---|
+| Christmas | ![](display_control/previews/christmas_64x32.gif) | ![](display_control/previews/christmas_32x32.gif) |
+| Power Flow | ![](display_control/previews/power_64x32.png) | ![](display_control/previews/power_32x32.png) |
+| Departures | ![](display_control/previews/departures_64x32.png) | ![](display_control/previews/departures_32x32.png) |
 
 ## Display modes
 
@@ -11,6 +15,7 @@ modes, and you switch between them from a small web page on the Pi.
 |---|---|---|
 | Christmas Snow | `christmas_display.py` | Clock with falling snow that piles up on the ground and roofs, melts slowly and gets cleared by a passing snowplow |
 | Power Flow | `power_display.py` | Live solar / grid / house power from Home Assistant, with animated arrows showing where the power flows |
+| Departures | `departures_display.py` | Next buses/trams/trains from an RMV stop (default: Darmstadt Luisenplatz towards Hbf and Lichtwiese), real-time minutes; yellow = late, red X = cancelled |
 
 One mode runs at a time, as the systemd service `traintime.service`.
 
@@ -20,7 +25,7 @@ Open **http://pidisplay.local:5000** (or the Pi's IP) and click a mode. You can 
 
 ```bash
 curl http://pidisplay.local:5000/api/status
-curl -X POST http://pidisplay.local:5000/api/switch/power      # or: christmas
+curl -X POST http://pidisplay.local:5000/api/switch/departures   # or: christmas, power
 ```
 
 To switch, the web UI (`web_control.py`, itself running as `display-control-web.service`) rewrites the
@@ -30,8 +35,12 @@ rule (`deploy/sudoers/display-control`) lets user `pi` run exactly those command
 ## Hardware
 
 - Raspberry Pi 3, 4 or 5 running Raspberry Pi OS Bookworm (64-bit)
-- Two 64×32 HUB75 panels on two parallel chains, giving 64×64 (`parallel=2`, `chain_length=2` in `Display` in `utils.py`)
-- RGB matrix HAT/adapter that supports 2 parallel chains, and a 5 V supply big enough for the panels
+- 32×32 HUB75 panels: two chained for 64×32 (`LED_PANEL=64x32`, the default), or one for 32×32 (`LED_PANEL=32x32`)
+- RGB matrix HAT/adapter, with the panels on its **second** output, and a 5 V supply big enough for the panels
+
+About the second output: the library is set up with `parallel=2`, so the visible panel starts at row 32 of
+the canvas. The code adds that offset for you (`y_offset` in `PANEL_PRESETS` in `utils.py`). If you
+wire a panel to the first output instead, set `LED_PARALLEL=1` and `LED_Y_OFFSET=0` in `.env`.
 
 **Pi 3:** works the same. The GPIO slowdown is picked by model (Pi 4/5 → 4, Pi 3 → 2). If you see
 glitches or flicker, set `LED_GPIO_SLOWDOWN` in `.env`. Building the LED library during install takes a few
@@ -55,7 +64,7 @@ sudo systemctl restart traintime
 2. builds [rpi-rgb-led-matrix](https://github.com/hzeller/rpi-rgb-led-matrix) at a pinned commit in `~/workspace/rpi-rgb-led-matrix` and installs its Python bindings
 3. copies `display_control/fonts/*.bdf` to `/usr/share/fonts/bdf`. The LED library drops root privileges to user `daemon` before fonts load, and that user can't read `/home/pi`.
 4. sets `dtparam=audio=off` in `/boot/firmware/config.txt`, because onboard audio conflicts with the matrix (you then need to reboot)
-5. creates `display_control/.env` from `.env.example`
+5. creates `display_control/.env` from `.env.example`, or adds any new settings to an existing one
 6. installs the sudoers rule and both systemd services, then enables and starts them
 
 The repo has to live at `/home/pi/workspace/TrainTime`, because the service files use that path.
@@ -67,27 +76,38 @@ Everything goes in `display_control/.env`, which is gitignored. The template is
 
 | Variable | Used by | Meaning |
 |---|---|---|
+| `LED_PANEL` | all modes | `64x32` (default) or `32x32` |
 | `LED_GPIO_SLOWDOWN` | all modes | Empty = auto by Pi model. Raise it if the image glitches |
 | `HA_URL` | Power Flow | e.g. `http://homeassistant.local:8123` |
 | `HA_TOKEN` | Power Flow | Home Assistant long-lived access token |
 | `HA_SOLAR_ENTITY` | Power Flow | Solar production sensor in W |
 | `HA_GRID_ENTITY` | Power Flow | Grid power sensor in W (negative = feeding in) |
+| `RMV_ACCESS_TOKEN` | Departures | Free key from [opendata.rmv.de](https://opendata.rmv.de) |
+| `RMV_STATION_ID` | Departures | Stop to show (default `3004736`, Darmstadt Luisenplatz) |
+| `RMV_DIRECTIONS` | Departures | `id:label,…` – only departures heading via these stops; empty = all |
+| `RMV_WALK_MINUTES` | Departures | Hide departures you can't reach in time (default 2) |
+| `RMV_POLL_SECONDS` | Departures | How often to ask RMV (default 90) |
 
-Power Flow polls `GET /api/states` every 5 s, only reads data, and calculates house consumption as
-`grid + solar`. A token from a non-admin HA user is enough.
+Power Flow reads the two sensors (`GET /api/states/<entity>`) every 5 s, only reads data, and calculates house
+consumption as `grid + solar`. A token from a non-admin HA user is enough.
 
-Animation tweaks (snowflake count, plow interval, melt rate) are constants at the top of `main()` in
-`christmas_display.py`.
+Departures calls RMV's `departureBoard` once per configured direction every `RMV_POLL_SECONDS`. Minutes
+always use German time, whatever timezone the Pi is set to. To find stop IDs, use
+`https://www.rmv.de/hapi/location.name?accessId=<key>&input=<name>&format=json`.
+
+Animation tweaks (plow interval, snow height) are constants at the top of `christmas_display.py`.
 
 The clock uses the system timezone: `sudo timedatectl set-timezone Europe/Berlin`.
 
 ## Preview without hardware
 
-`simulator.py` renders the modes with Pillow on any computer (it needs `numpy` and `Pillow`, not the LED library):
+`simulator.py` runs the **real** mode code with sample data on any computer. It swaps in
+`fake_rgbmatrix.py` for the LED library, and needs `numpy`, `Pillow` and `python-dotenv`:
 
 ```bash
-cd display_control && python3 simulator.py
-# -> christmas_preview.png, christmas_animation.gif, power_preview.png
+cd display_control
+python3 simulator.py --gif                          # every mode at every size -> previews/
+python3 simulator.py --size 32x32 --mode departures
 ```
 
 ## Running manually / debugging
@@ -95,7 +115,7 @@ cd display_control && python3 simulator.py
 ```bash
 sudo systemctl stop traintime                       # free the matrix first
 cd ~/workspace/TrainTime/display_control
-sudo python3 christmas_display.py                   # or power_display.py, Ctrl+C to stop
+sudo python3 christmas_display.py                   # or power_ / departures_display.py
 
 sudo systemctl status traintime display-control-web
 sudo journalctl -u traintime -f
@@ -106,6 +126,8 @@ sudo journalctl -u traintime -f
 | Flicker / glitches | Set `LED_GPIO_SLOWDOWN` higher in `.env`; make sure audio is off (`dtparam=audio=off`) and reboot |
 | Wrong time on the clock | `sudo timedatectl set-timezone <Zone>` |
 | Power Flow shows 0 W | Check `HA_*` in `.env`; `curl -H "Authorization: Bearer $HA_TOKEN" $HA_URL/api/states` |
+| Departures shows "No RMV key" / "RMV key bad" | Set `RMV_ACCESS_TOKEN` in `.env`, then `sudo systemctl restart traintime` |
+| Text sits half off the panel | Wrong `LED_PANEL`, or the panel is on the HAT's first output (see Hardware) |
 | "already running" | Another copy is using the matrix: `sudo systemctl stop traintime` |
 
 ## Repository layout
@@ -114,9 +136,11 @@ sudo journalctl -u traintime -f
 display_control/
   christmas_display.py   Christmas Snow mode
   power_display.py       Power Flow mode (Home Assistant)
-  utils.py               Display class: matrix setup, fonts, icons, drawing
+  departures_display.py  Departures mode (RMV)
+  utils.py               panel presets, Display (size-aware drawing), icons, shared run loop
   web_control.py         Flask mode switcher on :5000 (+ templates/control.html)
-  simulator.py           renders previews on a normal computer
+  simulator.py           renders previews with fake_rgbmatrix.py on a normal computer
+  previews/              output of simulator.py
   fonts/                 BDF fonts (X.Org, see fonts/AUTHORS), installed to /usr/share/fonts/bdf
   .env.example           configuration template
 deploy/
@@ -125,6 +149,12 @@ deploy/
   systemd/               traintime.service, display-control-web.service
   sudoers/               display-control (lets the web UI restart the display)
 ```
+
+### Adding a mode
+
+A mode is a class with `fps`, `__init__(self, display)` and `frame(self)`. It draws one frame using
+`display.width`/`height`, `display.set_pixel`, `display.text` and `display.clock`, and the file ends with
+`run(MyMode)`. Then add it to `DISPLAY_MODES` in `web_control.py` and to `simulator.py`.
 
 The earlier Django train-departure display is kept at the git tag `legacy-django` and on the
 `single_display` branch.

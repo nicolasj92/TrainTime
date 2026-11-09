@@ -21,6 +21,11 @@ DISPLAY_MODES = {
         'name': 'Power Flow',
         'description': 'Real-time energy monitoring',
         'script': 'power_display.py'
+    },
+    'departures': {
+        'name': 'Departures',
+        'description': 'Next buses and trams (RMV)',
+        'script': 'departures_display.py'
     }
 }
 

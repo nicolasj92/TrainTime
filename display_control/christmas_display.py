@@ -1,264 +1,285 @@
 #!/usr/bin/env python3
 """
-Christmas Display for LED Matrix
-Shows current time with falling snow animation, snow accumulation, and snowplow
+Christmas mode: clock with falling snow that piles up on the ground and on house roofs,
+melts slowly, and gets cleared by a passing snowplow. Works on 64x32 and 32x32.
 """
 
-import time
+import math
 import random
-import socket
-from utils import Display
 
-# Socket-based locking to prevent multiple instances
-def get_lock():
-    """Create a socket-based lock to ensure only one instance runs"""
-    lock_socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-    try:
-        # Use abstract namespace (Linux-specific)
-        lock_socket.bind('\0christmas_display_daemon')
-        return lock_socket
-    except socket.error:
-        print('Another instance of christmas_display.py is already running')
-        return None
+from utils import Display, run
+
+SNOW_COLOR = (170, 200, 255)
+MAX_GROUND_SNOW = 10
+ROOF_OVERHANG = 2
+PLOW_WIDTH = 10
+PLOW_BLADE = 3
+
+
+def plow_interval():
+    return random.randint(1000, 2000)  # frames; 50-100 s at 20 fps
 
 
 class Snowflake:
-    """Represents a single falling snowflake"""
-    def __init__(self, width=64, height=64):
-        self.x = random.randint(0, width - 1)
-        self.y = random.randint(-height // 2, 0)  # Start above screen
-        self.speed = random.choice([0.08, 0.12, 0.16])  # Even slower fall speeds
-        self.drift = random.choice([-0.15, 0, 0.15])  # Even slower horizontal drift
+    """A falling snowflake. Starts above the panel; y may be negative (not drawn)."""
+
+    def __init__(self, width, height):
         self.width = width
         self.height = height
-        self.y_float = float(self.y)  # Keep track of sub-pixel position
+        self.x = random.randint(0, width - 1)
+        # Spawn up to one panel-height above the top so flakes arrive spread out
+        self.y = random.randint(-height, 0) - height
+        self.speed = random.choice([0.08, 0.12, 0.16])
+        self.drift = random.choice([-0.15, 0, 0.15])
+        self.y_float = float(self.y)
+
+    def respawn(self):
+        self.y = random.randint(-10, 0) - self.height
+        self.y_float = float(self.y)
+        self.x = random.randint(0, self.width - 1)
 
     def fall(self):
-        """Move the snowflake down"""
         self.y_float += self.speed
-        self.y = int(self.y_float)
-        # Add horizontal drift occasionally
+        self.y = math.floor(self.y_float)
         if random.random() < 0.2:
             self.x += int(self.drift)
-            # Keep within bounds
             self.x = max(0, min(self.width - 1, self.x))
-
-        # Reset to top if fallen off screen
         if self.y >= self.height:
-            self.y = random.randint(-10, 0)
-            self.y_float = float(self.y)
-            self.x = random.randint(0, self.width - 1)
+            self.respawn()
 
     def is_visible(self):
-        """Check if snowflake is currently on screen"""
-        return 0 <= self.y < self.height
+        return -self.height <= self.y < self.height
 
 
-def main():
-    # Get lock to prevent multiple instances
-    lock = get_lock()
-    if lock is None:
-        return
+def make_house(x, ground_y, w, roof_h, windows, window_level, target_level):
+    return {
+        "x": x, "y": ground_y, "w": w, "h": 6, "roof_h": roof_h, "windows": windows,
+        "roof_snow": [0] * (w + ROOF_OVERHANG * 2), "chimney_snow": 0,
+        "window_level": window_level, "target_level": target_level,
+    }
 
-    print("Starting Christmas display...")
-    display = Display(interval=0.02)
 
-    # Create snowflakes
-    num_snowflakes = 30
-    snowflakes = [Snowflake(width=64, height=64) for _ in range(num_snowflakes)]
+class Christmas:
+    fps = 20
 
-    # Snow accumulation at bottom (x-coordinate -> height)
-    snow_accumulation = {x: 0 for x in range(64)}
+    def __init__(self, display: Display):
+        self.d = display
+        W, H = display.width, display.height
+        self.snowflakes = [Snowflake(W, H) for _ in range(30 if display.wide else 15)]
+        self.ground = {x: 0 for x in range(W)}
+        self.plow_active = False
+        self.plow_position = -(PLOW_WIDTH + PLOW_BLADE)
+        self.plow_direction = 1
+        self.frames_until_plow = plow_interval()
+        self.blink = 0
+        if display.wide:
+            self.houses = [
+                make_house(8, H - 11, 9, 2, [(1, 2, 2, 2), (5, 2, 2, 2)], 80, 90),
+                make_house(44, H - 7, 10, 3, [(1, 2, 2, 2), (6, 2, 2, 2)], 90, 110),
+            ]
+        else:
+            self.houses = [make_house(W - 13, H - 7, 9, 2, [(1, 2, 2, 2), (5, 2, 2, 2)], 90, 110)]
 
-    # Snowplow state
-    plow_width = 10
-    plow_blade = 3
-    plow_active = False
-    plow_position = -(plow_width + plow_blade)
-    plow_direction = 1
-    frames_until_plow = random.randint(1000, 2000)  # Plow comes every 50-100 seconds at 20fps
+    # --- simulation ---
 
-    blink_counter = 0
-    roof_overhang = 2
-    houses = [
-        {"x": 8, "y": 53, "w": 9, "h": 6, "roof_h": 2, "windows": [(1, 2, 2, 2), (5, 2, 2, 2)], "roof_snow": [0] * (9 + roof_overhang * 2), "chimney_snow": 0, "window_level": 80, "target_level": 90},
-        {"x": 44, "y": 57, "w": 10, "h": 6, "roof_h": 3, "windows": [(1, 2, 2, 2), (6, 2, 2, 2)], "roof_snow": [0] * (10 + roof_overhang * 2), "chimney_snow": 0, "window_level": 90, "target_level": 110},
-    ]
-
-    def _matrix_dim(attr, fallback):
-        value = getattr(display.matrix, attr, fallback)
-        if callable(value):
-            value = value()
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return fallback
-
-    try:
-        while True:
-            # Check if we should activate the snowplow
-            if not plow_active:
-                frames_until_plow -= 1
-                if frames_until_plow <= 0:
-                    plow_active = True
-                    plow_direction = random.choice([1, -1])
-                    if plow_direction == 1:
-                        plow_position = -(plow_width + plow_blade)
-                    else:
-                        plow_position = 64 + plow_blade
-
-            # Update snowplow position (slower movement)
-            if plow_active and blink_counter % 2 == 0:  # Move every other frame
-                plow_position += plow_direction
-                # Clear snow where plow passes
-                if plow_direction == 1:
-                    clear_start = plow_position
-                    clear_end = plow_position + plow_width + plow_blade - 1
+    def _update_plow(self):
+        W = self.d.width
+        if not self.plow_active:
+            self.frames_until_plow -= 1
+            if self.frames_until_plow <= 0:
+                self.plow_active = True
+                self.plow_direction = random.choice([1, -1])
+                if self.plow_direction == 1:
+                    self.plow_position = -(PLOW_WIDTH + PLOW_BLADE)
                 else:
-                    clear_start = plow_position - plow_blade
-                    clear_end = plow_position + plow_width - 1
-                for px in range(clear_start, clear_end + 1):
-                    if 0 <= px < 64:
-                        snow_accumulation[px] = 0
+                    self.plow_position = W + PLOW_BLADE
 
-                # Deactivate plow when it reaches the end
-                if plow_direction == 1 and plow_position > 64:
-                    plow_active = False
-                    frames_until_plow = random.randint(1000, 2000)
-                elif plow_direction == -1 and plow_position + plow_width < 0:
-                    plow_active = False
-                    frames_until_plow = random.randint(1000, 2000)
+        if self.plow_active and self.blink % 2 == 0:  # move every other frame
+            self.plow_position += self.plow_direction
+            if self.plow_direction == 1:
+                clear = range(self.plow_position, self.plow_position + PLOW_WIDTH + PLOW_BLADE)
+            else:
+                clear = range(self.plow_position - PLOW_BLADE, self.plow_position + PLOW_WIDTH)
+            for px in clear:
+                if 0 <= px < W:
+                    self.ground[px] = 0
+            if (self.plow_direction == 1 and self.plow_position > W) or \
+               (self.plow_direction == -1 and self.plow_position + PLOW_WIDTH < 0):
+                self.plow_active = False
+                self.frames_until_plow = plow_interval()
 
-            # Draw the Christmas scene with snow accumulation
-            display.print_christmas(
-                blink_state=blink_counter,
-                snow_accumulation=snow_accumulation,
-                plow_position=plow_position if plow_active else None,
-                plow_direction=plow_direction,
-                houses=houses,
-            )
+    def _update_windows(self):
+        for house in self.houses:
+            if self.blink % 8 == 0:
+                house["target_level"] = random.randint(50, 170)
+            if house["window_level"] < house["target_level"]:
+                house["window_level"] += 2
+            elif house["window_level"] > house["target_level"]:
+                house["window_level"] -= 2
+            house["window_level"] = max(40, min(190, house["window_level"] + random.randint(-3, 3)))
 
-            # Update house window flicker and roof snow
-            for house in houses:
-                if blink_counter % 8 == 0:
-                    house["target_level"] = random.randint(50, 170)
-                if house["window_level"] < house["target_level"]:
-                    house["window_level"] += 2
-                elif house["window_level"] > house["target_level"]:
-                    house["window_level"] -= 2
-                house["window_level"] = max(40, min(190, house["window_level"] + random.randint(-3, 3)))
+    def _land_on_roof(self, flake):
+        """Returns True if the flake landed on a roof or chimney (and respawns it)."""
+        for house in self.houses:
+            if not (house["x"] - ROOF_OVERHANG <= flake.x < house["x"] + house["w"] + ROOF_OVERHANG):
+                continue
+            idx = flake.x - house["x"] + ROOF_OVERHANG
+            if idx < 0 or idx >= len(house["roof_snow"]):
+                continue
+            roof_base_y = house["y"] - house["h"]
+            peak_x = house["x"] + house["w"] // 2
+            slope = house["roof_h"] - (abs(flake.x - peak_x) + 1) // 2
+            if slope < 0:
+                continue
+            roof_y = roof_base_y - slope - 1
+            chimney_x = house["x"] + house["w"] - 2
+            chimney_top = roof_base_y - house["roof_h"] + 1 - 3
+            if flake.x == chimney_x and house["chimney_snow"] < 2 and \
+               chimney_top <= flake.y <= chimney_top + 1:
+                house["chimney_snow"] += 1
+                flake.respawn()
+                return True
+            if roof_y - house["roof_snow"][idx] <= flake.y <= roof_y:
+                if house["roof_snow"][idx] < 2:
+                    house["roof_snow"][idx] += 1
+                flake.respawn()
+                return True
+        return False
 
-            # Draw falling snow with smooth brightness transitions
-            for flake in snowflakes:
-                if flake.is_visible():
-                    # Check if snowflake hits accumulated snow or ground
-                    if flake.y >= 63 or (flake.y >= 63 - snow_accumulation.get(flake.x, 0)):
-                        # Add to accumulation (max height of 10 pixels)
-                        if snow_accumulation[flake.x] < 10:
-                            snow_accumulation[flake.x] += 1
-                        # Reset snowflake to top
-                        flake.y = random.randint(-10, 0)
-                        flake.y_float = float(flake.y)
-                        flake.x = random.randint(0, 63)
-                    else:
-                        # Check if snowflake hits a house roof
-                        hit_house = False
-                        for house in houses:
-                            if house["x"] - roof_overhang <= flake.x < house["x"] + house["w"] + roof_overhang:
-                                idx = flake.x - house["x"] + roof_overhang
-                                if idx < 0 or idx >= len(house["roof_snow"]):
-                                    continue
-                                roof_base_y = house["y"] - house["h"]
-                                peak_x = house["x"] + house["w"] // 2
-                                slope = house["roof_h"] - (abs(flake.x - peak_x) + 1) // 2
-                                if slope < 0:
-                                    continue
-                                roof_y = roof_base_y - slope - 1
-                                chimney_x = house["x"] + house["w"] - 2
-                                chimney_base = roof_base_y - house["roof_h"] + 1
-                                chimney_top = chimney_base - 3
-                                chimney_snow = house.get("chimney_snow", 0)
-                                if flake.x == chimney_x:
-                                    if chimney_snow < 2 and chimney_top <= flake.y <= chimney_top + 1:
-                                        house["chimney_snow"] = chimney_snow + 1
-                                        flake.y = random.randint(-10, 0)
-                                        flake.y_float = float(flake.y)
-                                        flake.x = random.randint(0, 63)
-                                        hit_house = True
-                                        break
-                                snow_depth = house["roof_snow"][idx]
-                                if flake.y >= roof_y - snow_depth and flake.y <= roof_y:
-                                    if house["roof_snow"][idx] < 2:
-                                        house["roof_snow"][idx] += 1
-                                    flake.y = random.randint(-10, 0)
-                                    flake.y_float = float(flake.y)
-                                    flake.x = random.randint(0, 63)
-                                    hit_house = True
-                                    break
-                        if hit_house:
-                            flake.fall()
-                            continue
+    def _update_and_draw_snow(self, clock_x, clock_w):
+        d, H = self.d, self.d.height
+        bottom = H - 1
+        for flake in self.snowflakes:
+            if flake.is_visible():
+                if flake.y >= bottom - self.ground.get(flake.x, 0):
+                    if self.ground[flake.x] < MAX_GROUND_SNOW:
+                        self.ground[flake.x] += 1
+                    flake.respawn()
+                elif self._land_on_roof(flake):
+                    flake.fall()
+                    continue
+                elif not (clock_x - 2 <= flake.x <= clock_x + clock_w and 0 <= flake.y <= 7):
+                    # Sub-pixel smoothing: split brightness between this pixel and the next
+                    fraction = flake.y_float - flake.y
+                    main = max(0, min(255, int(255 * (1.0 - fraction * 0.5))))
+                    d.set_pixel(flake.x, flake.y, main, main, main)
+                    if flake.y + 1 < H:
+                        nxt = max(0, min(255, int(255 * fraction * 0.5)))
+                        if nxt > 0:
+                            d.set_pixel(flake.x, flake.y + 1, nxt, nxt, nxt)
+            flake.fall()
 
-                        # Check if snowflake is in time display area (skip drawing if so)
-                        # Time is at position (20, 38) with font size roughly 25x7 pixels
-                        in_time_area = (18 <= flake.x <= 45 and 32 <= flake.y <= 39)
-                        if not in_time_area:
-                            # Draw snowflake with smooth sub-pixel positioning
-                            # Calculate brightness based on sub-pixel position
-                            fraction = flake.y_float - flake.y  # 0.0 to 1.0
+    def _melt(self):
+        if self.blink % 100 == 0:
+            for _ in range(2):
+                x = random.randint(0, self.d.width - 1)
+                if self.ground[x] > 0:
+                    self.ground[x] -= 1
+        if self.blink % 200 == 0:
+            for house in self.houses:
+                melt_idx = random.randint(0, len(house["roof_snow"]) - 1)
+                if house["roof_snow"][melt_idx] > 0:
+                    house["roof_snow"][melt_idx] -= 1
+                if house["chimney_snow"] > 0 and random.random() < 0.5:
+                    house["chimney_snow"] -= 1
 
-                            # Main pixel (current position)
-                            brightness_main = max(0, min(255, int(255 * (1.0 - fraction * 0.5))))
-                            display.offscreen_canvas.SetPixel(
-                                flake.x, flake.y,
-                                brightness_main, brightness_main, brightness_main
-                            )
+    def frame(self):
+        self._update_plow()
+        d = self.d
+        d.clear()
+        clock_x, clock_w = d.clock()
+        self._draw_ground()
+        for house in self.houses:
+            self._draw_house(house)
+        if self.plow_active:
+            self._draw_plow()
+        self._update_windows()
+        self._update_and_draw_snow(clock_x, clock_w)
+        self.blink += 1
+        self._melt()
 
-                            # Next pixel (below) with fade-in effect
-                            if flake.y + 1 < 64:
-                                brightness_next = max(0, min(255, int(255 * fraction * 0.5)))
-                                if brightness_next > 0:
-                                    display.offscreen_canvas.SetPixel(
-                                        flake.x, flake.y + 1,
-                                        brightness_next, brightness_next, brightness_next
-                                    )
+    # --- drawing ---
 
-                # Move snowflake
-                flake.fall()
+    def _draw_ground(self):
+        bottom = self.d.height - 1
+        for x, height in self.ground.items():
+            for y in range(height):
+                self.d.set_pixel(x, bottom - y, *SNOW_COLOR)
 
-            # Swap buffers to show the frame
-            display.offscreen_canvas = display.matrix.SwapOnVSync(display.offscreen_canvas)
+    def _draw_house(self, house):
+        px_ = self.d.set_pixel
+        house_color = (30, 30, 40)
+        roof_color = (55, 55, 70)
+        ridge_color = (75, 75, 95)
+        roof_snow_color = (190, 210, 255)
+        x, y, w, h, roof_h = house["x"], house["y"], house["w"], house["h"], house["roof_h"]
+        roof_base_y = y - h
+        peak_x = x + w // 2
 
-            # Increment blink counter for animations
-            blink_counter += 1
+        for dx in range(w):
+            for dy in range(h):
+                px_(x + dx, y - dy, *house_color)
+        for dx in range(-ROOF_OVERHANG, w + ROOF_OVERHANG):
+            px = x + dx
+            slope = roof_h - (abs(px - peak_x) + 1) // 2
+            if slope < 0:
+                continue
+            roof_y = roof_base_y - slope
+            for py in range(roof_base_y, roof_y - 1, -1):
+                px_(px, py, *roof_color)
+            px_(px, roof_y, *ridge_color)
+        chimney_x = x + w - 2
+        chimney_top = roof_base_y - roof_h + 1
+        for dy in range(3):
+            px_(chimney_x, chimney_top - dy, *ridge_color)
+        for dy in range(house["chimney_snow"]):
+            px_(chimney_x, chimney_top - 3 - dy, *roof_snow_color)
+        for px, py in ((x - 1, roof_base_y + 1), (x + w, roof_base_y + 1)):
+            px_(px, py, *roof_color)
+        for dx in range(-ROOF_OVERHANG, w + ROOF_OVERHANG):
+            px = x + dx
+            slope = roof_h - (abs(px - peak_x) + 1) // 2
+            if slope < 0:
+                continue
+            roof_y = roof_base_y - slope - 1
+            for dy in range(house["roof_snow"][dx + ROOF_OVERHANG]):
+                px_(px, roof_y - dy, *roof_snow_color)
 
-            # Gradually melt snow (slowly)
-            if blink_counter % 100 == 0:
-                # Reduce snow height at random positions
-                for _ in range(2):  # Melt 2 random positions
-                    x = random.randint(0, 63)
-                    if snow_accumulation[x] > 0:
-                        snow_accumulation[x] -= 1
-            if blink_counter % 200 == 0:
-                for house in houses:
-                    if house["roof_snow"]:
-                        melt_idx = random.randint(0, len(house["roof_snow"]) - 1)
-                        if house["roof_snow"][melt_idx] > 0:
-                            house["roof_snow"][melt_idx] -= 1
-                    if house.get("chimney_snow", 0) > 0 and random.random() < 0.5:
-                        house["chimney_snow"] -= 1
+        level = house["window_level"]
+        window_color = tuple(min(255, int(c * level / 160)) for c in (255, 210, 70))
+        for wx, wy, ww, wh in house["windows"]:
+            for dx in range(ww):
+                for dy in range(wh):
+                    px_(x + wx + dx, y - wy - dy, *window_color)
 
-            # Small delay for animation timing
-            time.sleep(0.05)  # ~20 FPS
+    def _draw_plow(self):
+        px_ = self.d.set_pixel
+        pos, direction, blink = self.plow_position, self.plow_direction, self.blink
+        bottom = self.d.height - 1
+        body_w, body_h = PLOW_WIDTH, 5
+        body_top = bottom - 4
+        yellow, yellow_dark = (255, 200, 0), (200, 150, 0)
+        glass, blade, dark, tread = (180, 220, 255), (120, 120, 120), (80, 80, 80), (40, 40, 40)
 
-    except KeyboardInterrupt:
-        print("\nStopping Christmas display...")
-        display.offscreen_canvas.Clear()
-        display.matrix.SwapOnVSync(display.offscreen_canvas)
-    finally:
-        if lock:
-            lock.close()
+        for dx in range(body_w):
+            for dy in range(body_h):
+                px_(pos + dx, body_top + dy, *(yellow_dark if dy == body_h - 1 else yellow))
+        window_offset = 6 if direction == 1 else 2
+        for dx in range(2):
+            for dy in range(2):
+                px_(pos + window_offset + dx, body_top + 1 + dy, *glass)
+        for dx in ([1, 3, 5, 7, 9] if blink % 2 == 0 else [0, 2, 4, 6, 8]):
+            px_(pos + dx, bottom, *tread)
+        if blink % 8 < 4:
+            px_(pos + (7 if direction == 1 else 2), body_top - 1, 255, 180, 0)
+
+        s = 1 if direction == 1 else -1
+        base = pos + body_w if direction == 1 else pos - 1
+        for dx, dy, color in [(0, 0, blade), (1, 0, blade), (2, 0, dark),
+                              (0, 1, blade), (1, 1, blade), (2, 1, dark),
+                              (1, 2, blade), (2, 2, blade), (2, 3, dark)]:
+            px_(base + s * dx, bottom - dy, *color)
 
 
 if __name__ == "__main__":
-    main()
+    run(Christmas)
