@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Set up a fresh Raspberry Pi OS (Bookworm) Pi as a TrainTime LED matrix display.
-# Usage (as user pi):
+# Safe to re-run. Usage (as user pi):
 #   git clone https://github.com/nicolasj92/TrainTime.git ~/workspace/TrainTime
 #   ~/workspace/TrainTime/deploy/install.sh
 set -euo pipefail
@@ -26,9 +26,9 @@ make -C "$LED_DIR" -j"$(nproc)"
 make -C "$LED_DIR/bindings/python" build-python PYTHON=/usr/bin/python3
 sudo make -C "$LED_DIR/bindings/python" install-python PYTHON=/usr/bin/python3
 
-echo "==> BDF fonts -> /usr/share/fonts/bdf"
-sudo mkdir -p /usr/share/fonts/bdf
-sudo cp "$REPO_DIR"/display_control/fonts/*.bdf /usr/share/fonts/bdf/
+echo "==> BDF fonts -> /usr/share/fonts/bdf (must be readable after rgbmatrix drops root)"
+sudo install -d -m 0755 /usr/share/fonts/bdf
+sudo install -m 0644 "$REPO_DIR"/display_control/fonts/*.bdf /usr/share/fonts/bdf/
 
 echo "==> disable onboard audio (conflicts with LED matrix timing)"
 CFG=/boot/firmware/config.txt

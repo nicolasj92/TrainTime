@@ -7,6 +7,7 @@ Simple Flask app to switch between display modes
 from flask import Flask, render_template, redirect, url_for, jsonify
 import subprocess
 import os
+import re
 
 app = Flask(__name__)
 
@@ -24,7 +25,8 @@ DISPLAY_MODES = {
 }
 
 SERVICE_FILE = '/etc/systemd/system/traintime.service'
-WORKING_DIR = '/home/pi/workspace/TrainTime/display_control'
+SERVICE_TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                '..', 'deploy', 'systemd', 'traintime.service')
 
 
 def get_current_mode():
@@ -62,25 +64,12 @@ def switch_mode(mode):
 
     script = DISPLAY_MODES[mode]['script']
 
-    # Create new service configuration
-    service_config = f"""[Unit]
-Description=Train Time Display - {DISPLAY_MODES[mode]['name']}
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory={WORKING_DIR}
-Environment=FONT_DIR=/usr/share/fonts/bdf
-ExecStart=/usr/bin/python3 {script}
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-"""
-
     try:
+        # Same unit file install.sh uses, with only the ExecStart script swapped
+        with open(SERVICE_TEMPLATE) as f:
+            service_config = re.sub(r'^ExecStart=.*$', f'ExecStart=/usr/bin/python3 {script}',
+                                    f.read(), flags=re.M)
+
         # Write to temporary file
         temp_file = '/tmp/traintime.service'
         with open(temp_file, 'w') as f:

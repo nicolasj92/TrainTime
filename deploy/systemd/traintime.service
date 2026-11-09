@@ -1,12 +1,14 @@
 [Unit]
-Description=Train Time Display - Power Flow
-After=network.target
+Description=TrainTime LED matrix display
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
+# root is required by rpi-rgb-led-matrix for GPIO timing
 User=root
 WorkingDirectory=/home/pi/workspace/TrainTime/display_control
-Environment=FONT_DIR=/usr/share/fonts/bdf
+# Mode is selected by the web UI (web_control.py), which rewrites this line
 ExecStart=/usr/bin/python3 christmas_display.py
 Restart=always
 RestartSec=10

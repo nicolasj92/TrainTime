@@ -4,7 +4,6 @@ Utilities for LED Matrix Display
 Contains Icon classes and Display class for rendering various modes:
 - Christmas display with snow animation
 - Power flow display with Home Assistant integration
-- Train/bus departure information
 """
 
 import time
@@ -13,7 +12,11 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
 from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
+
+# All settings live in display_control/.env (see .env.example)
+load_dotenv(Path(__file__).resolve().parent / '.env')
 
 color_blue = [48, 118, 179]
 color_black = [0, 0, 0]
@@ -21,6 +24,8 @@ color_yellow = [255, 255, 0]
 color_orange = [214, 130, 53]
 color_red = [255, 0, 0]
 
+# Fonts are loaded after rgbmatrix drops root privileges to user 'daemon', which can't
+# read /home/pi, so install.sh copies fonts/ here.
 font_dir = os.getenv('FONT_DIR', '/usr/share/fonts/bdf')
 
 
@@ -244,12 +249,26 @@ class IconChristmasTree(Icon):
         self.content[7, 13] = [101, 67, 33]
 
 
+def default_gpio_slowdown():
+    """Pick a GPIO slowdown that suits the Pi model (faster CPU -> higher value)."""
+    try:
+        model = Path('/proc/device-tree/model').read_text()
+    except OSError:
+        return 4
+    if 'Pi 5' in model or 'Pi 4' in model:
+        return 4
+    if 'Pi 3' in model:
+        return 2
+    return 1
+
+
 class Display:
     def __init__(self, interval=0.05):
         options = RGBMatrixOptions()
         options.chain_length = 2
-        options.gpio_slowdown = 4
         options.parallel = 2
+        options.gpio_slowdown = int(os.getenv('LED_GPIO_SLOWDOWN') or default_gpio_slowdown())
+        print(f"RGBMatrix gpio_slowdown: {options.gpio_slowdown}", flush=True)
         print(f"RGBMatrix brightness (options): {options.brightness}", flush=True)
         self.matrix = RGBMatrix(options=options)
         self.offscreen_canvas = self.matrix.CreateFrameCanvas()

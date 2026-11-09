@@ -1,12 +1,12 @@
 [Unit]
-Description=LED Display Web Control Interface
-After=network.target
+Description=TrainTime web control (mode switcher on port 5000)
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/workspace/TrainTime/display_control
-Environment=FLASK_APP=web_control.py
 ExecStart=/usr/bin/python3 web_control.py
 Restart=always
 RestartSec=10
