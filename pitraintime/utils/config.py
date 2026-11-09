@@ -17,6 +17,7 @@ class TrainTimeConfig(object):
         self.max_departures = config_dict["max_departures"]
         self.layout_type = config_dict["layout_type"]
         self.routes = config_dict["routes"]
+        self.walk_time = config_dict["walk_time"]
 
     def save(self, path=None):
         if path is None:
@@ -25,6 +26,7 @@ class TrainTimeConfig(object):
             "max_departures": self.max_departures,
             "layout_type": self.layout_type,
             "routes": self.routes,
+            "walk_time": self.walk_time,
         }
         with open(path, "w") as fh:
             json.dump(config_dict, fh)

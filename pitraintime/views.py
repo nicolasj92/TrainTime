@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.shortcuts import render
 from django.utils import timezone
@@ -23,7 +23,7 @@ def get_connections(num_entries=5):
         # Get the next num_entries upcoming connection
         connections = Connection.objects.filter(
             time_at_start__gte=timezone.make_aware(
-                datetime.now(), timezone.get_current_timezone()
+                datetime.now() + timedelta(minutes=config.walk_time), timezone.get_current_timezone()
             ),
             station_start__hafas_id=route["start"],
             station_end__hafas_id=route["end"],

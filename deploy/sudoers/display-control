@@ -1,0 +1,8 @@
+# Allow pi user to manage display control without password
+pi ALL=(ALL) NOPASSWD: /bin/cp /tmp/traintime.service /etc/systemd/system/traintime.service
+pi ALL=(ALL) NOPASSWD: /bin/systemctl daemon-reload
+pi ALL=(ALL) NOPASSWD: /bin/systemctl restart traintime.service
+pi ALL=(ALL) NOPASSWD: /bin/systemctl start traintime.service
+pi ALL=(ALL) NOPASSWD: /bin/systemctl stop traintime.service
+pi ALL=(ALL) NOPASSWD: /bin/systemctl status traintime.service
+pi ALL=(ALL) NOPASSWD: /bin/systemctl is-active traintime.service

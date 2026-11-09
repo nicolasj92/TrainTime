@@ -19,9 +19,9 @@ class RmvAPIAccessor(object):
 
     @staticmethod
     def _json_to_connection(obj, route):
-        line_name = obj["Product"]["line"].strip()
+        line_name = obj["Product"][0]["line"].strip()
         line_direction = obj["direction"].strip()
-        vehicle_type = obj["Product"]["catOut"].strip()
+        vehicle_type = obj["Product"][0]["catOut"].strip()
 
         date = obj.get("rtDate", obj["date"]).strip()
         clock_time = obj.get("rtTime", obj["time"]).strip()
@@ -37,7 +37,7 @@ class RmvAPIAccessor(object):
             vehicle_type=vehicle_type,
         )
 
-    def find_departures(self, route, from_timestamp=None, max_departures=10):
+    def find_departures(self, route, from_timestamp=None, max_departures=10, duration=180):
         if from_timestamp is None:
             from_time = time.localtime()
         else:
@@ -47,7 +47,7 @@ class RmvAPIAccessor(object):
         actual_date = "{}-{:02}-{:02}".format(year, month, day)
         actual_time = "{:02}:{:02}".format(hour, minute)
 
-        req = "{url}&accessId={token}&extId={start}&direction={end}&date={date}&time={time}&maxJourneys={max_departures}&format=json".format(
+        req = "{url}&accessId={token}&id={start}&direction={end}&date={date}&time={time}&maxJourneys={max_departures}&duration={duration}&format=json".format(
             url=self.api_url,
             token=self.access_token,
             start=route["start"],
@@ -55,20 +55,26 @@ class RmvAPIAccessor(object):
             date=actual_date,
             time=actual_time,
             max_departures=max_departures,
+            duration=duration
         )
 
+        print(req)
+
         get = requests.get(req)
-        json = get.json()
+        json_content = get.json()
         get.close()
+
+        with open("sample_json.json", "w") as f:
+            json.dump(json_content, f, indent=4)
 
         try:
             connections = [
-                self._json_to_connection(json["Departure"][i], route)
-                for i in range(len(json["Departure"]))
+                self._json_to_connection(json_content["Departure"][i], route)
+                for i in range(len(json_content["Departure"]))
             ]
         except KeyError as err:
-            if "errorCode" in json:
-                raise OSError("Error: %s" % json["errorText"])
+            if "errorCode" in json_content:
+                raise OSError("Error: %s" % json_content["errorText"])
             else:
                 raise err
 
@@ -83,7 +89,7 @@ if __name__ == "__main__":
     api_url = "http://www.rmv.de/hapi/departureBoard?json"
     access_token = "REMOVED"
 
-    test_route_lui_hbf = Route(start="3004736", end="3004734")
+    test_route_lui_hbf = {"start": "3004736", "end": "3024730"}
 
     rmv_api = RmvAPIAccessor(api_url, access_token)
 

@@ -1,11 +1,16 @@
+#!/usr/bin/env python3
+"""
+Power Flow Display for LED Matrix
+Shows real-time energy flow from solar panels, grid, and home consumption
+Requires Home Assistant integration
+"""
+
 import time
 import requests
-from datetime import datetime
 import os
 from dotenv import load_dotenv
 from utils import Display
 import threading
-from queue import Queue
 
 # Load environment variables
 load_dotenv()
@@ -54,10 +59,10 @@ def get_power_values():
                 print(f"Warning: Entity {entity_id} not found")
                 values[entity_id] = 0
         
-        # Calculate home power as sum of grid and solar
+        # Return solar and grid power values
         return (
-            round(1000),#values[HA_ENTITIES['solar_power']]),
-            round(-200),#values[HA_ENTITIES['grid_power']])
+            round(values[HA_ENTITIES['solar_power']]),
+            round(values[HA_ENTITIES['grid_power']])
         )
     except Exception as e:
         print(f"Error fetching power values: {e}")

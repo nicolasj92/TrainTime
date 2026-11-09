@@ -1,0 +1,15 @@
+[Unit]
+Description=Train Time Display - Power Flow
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/pi/workspace/TrainTime/display_control
+Environment=FONT_DIR=/usr/share/fonts/bdf
+ExecStart=/usr/bin/python3 christmas_display.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -30,13 +30,28 @@ class Command(BaseCommand):
             connections += api_accessor.find_departures(
                 route=route, max_departures=config.max_departures
             )
+            print(connections)
+
+        # # Write all connections in the database
+        # for connection in connections:
+        #     Connection.objects.get_or_create(
+        #         station_start=Station.objects.get(hafas_id=connection.station_id_start),
+        #         station_end=Station.objects.get(hafas_id=connection.station_id_end),
+        #         line_name=connection.line_name,
+        #         line_direction=connection.line_direction,
+        #         vehicle_type=connection.vehicle_type,
+        #         time_at_start=timezone.make_aware(
+        #             connection.time_at_start, timezone.get_current_timezone()
+        #         ),
+        #     )
 
         # Truncate connections DB
         self._cleanup_connections()
 
         # Write all connections in the database
+        connection_list = []
         for connection in connections:
-            Connection.objects.create(
+            connection_list.append(Connection(
                 station_start=Station.objects.get(hafas_id=connection.station_id_start),
                 station_end=Station.objects.get(hafas_id=connection.station_id_end),
                 line_name=connection.line_name,
@@ -45,7 +60,9 @@ class Command(BaseCommand):
                 time_at_start=timezone.make_aware(
                     connection.time_at_start, timezone.get_current_timezone()
                 ),
-            )
+            ))
+
+        Connection.objects.bulk_create(connection_list)
 
         print(
             "Got {} connections at {}!".format(
