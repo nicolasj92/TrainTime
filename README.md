@@ -22,7 +22,7 @@ On Raspberry Pi OS Bookworm (64-bit), logged in as user `pi`:
 
 ```bash
 sudo apt-get install -y git
-git clone -b energy-dashboard https://github.com/nicolasj92/TrainTime.git ~/workspace/TrainTime
+git clone https://github.com/nicolasj92/TrainTime.git ~/workspace/TrainTime
 ~/workspace/TrainTime/deploy/install.sh
 nano ~/workspace/TrainTime/display_control/.env   # only needed for Power Flow mode
 sudo systemctl restart traintime

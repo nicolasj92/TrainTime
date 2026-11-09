@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Set up a fresh Raspberry Pi OS (Bookworm) Pi as a TrainTime LED matrix display.
 # Usage (as user pi):
-#   git clone -b energy-dashboard https://github.com/nicolasj92/TrainTime.git ~/workspace/TrainTime
+#   git clone https://github.com/nicolasj92/TrainTime.git ~/workspace/TrainTime
 #   ~/workspace/TrainTime/deploy/install.sh
 set -euo pipefail
 

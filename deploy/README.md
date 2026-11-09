@@ -4,7 +4,7 @@ Tested against Raspberry Pi OS Bookworm (64-bit), user `pi`, HUB75 LED matrix.
 
 ```bash
 sudo apt-get install -y git
-git clone -b energy-dashboard https://github.com/nicolasj92/TrainTime.git ~/workspace/TrainTime
+git clone https://github.com/nicolasj92/TrainTime.git ~/workspace/TrainTime
 ~/workspace/TrainTime/deploy/install.sh
 nano ~/workspace/TrainTime/display_control/.env   # Home Assistant URL + token
 sudo systemctl restart traintime
