@@ -6,3 +6,5 @@ pi ALL=(ALL) NOPASSWD: /bin/systemctl start traintime.service
 pi ALL=(ALL) NOPASSWD: /bin/systemctl stop traintime.service
 pi ALL=(ALL) NOPASSWD: /bin/systemctl status traintime.service
 pi ALL=(ALL) NOPASSWD: /bin/systemctl is-active traintime.service
+# Save Wi-Fi networks from the web UI's setup page
+pi ALL=(root) NOPASSWD: /usr/local/sbin/pidisplay-wifi

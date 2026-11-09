@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""
+Wi-Fi fallback daemon (runs as root via wifi-fallback.service).
+
+If the Pi has no Wi-Fi or Ethernet connection for WIFI_FALLBACK_MINUTES, it starts the
+access point "pidisplay-setup" (NetworkManager shared mode, Pi at 10.42.0.1). Phones that join
+are sent to the setup page of the web UI (DNS answers everything with 10.42.0.1, and port 80
+is redirected to 5000).
+
+While the hotspot is up it tries the known networks again:
+  - right away, when the web UI adds a network (it touches /run/pidisplay/retry)
+  - every WIFI_RETRY_MINUTES, if no phone is connected to the hotspot
+
+It only creates/changes its own "pidisplay-setup" connection; other Wi-Fi profiles are never
+modified here (the web UI adds new ones via deploy/bin/pidisplay-wifi).
+
+State for the display and web UI goes to /run/pidisplay/hotspot.json (exists = hotspot up).
+
+    wifi-fallback               run the daemon
+    wifi-fallback --test 180    start the hotspot for 180 s, then go back to normal Wi-Fi
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# Installed to /usr/local/sbin by install.sh; the service passes the .env location
+ENV_FILE = Path(os.environ.get("TRAINTIME_ENV", "/home/pi/workspace/TrainTime/display_control/.env"))
+RUN_DIR = Path("/run/pidisplay")
+STATE_FILE = RUN_DIR / "hotspot.json"
+RETRY_FILE = RUN_DIR / "retry"
+SCAN_FILE = RUN_DIR / "scan.json"
+NFT_TABLE = "pidisplay_portal"
+
+HOTSPOT_CON = "pidisplay-setup"
+IFACE = "wlan0"
+AP_IP = "10.42.0.1"
+WEB_PORT = 5000
+
+
+def load_env():
+    env = {}
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text().splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip()
+    return env
+
+
+ENV = load_env()
+SSID = ENV.get("WIFI_SETUP_SSID") or "pidisplay-setup"
+PASSWORD = ENV.get("WIFI_SETUP_PASSWORD") or ""
+FALLBACK_MINUTES = float(ENV.get("WIFI_FALLBACK_MINUTES") or 3)
+RETRY_MINUTES = float(ENV.get("WIFI_RETRY_MINUTES") or 10)
+RECONNECT_WAIT = 60  # seconds to wait for a known network after the hotspot goes down
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def sh(*args, check=False, input=None):
+    r = subprocess.run(args, capture_output=True, text=True, input=input)
+    if check and r.returncode != 0:
+        raise RuntimeError(f"{' '.join(args)}: {r.stderr.strip()}")
+    return r
+
+
+def nmcli(*args, check=False):
+    return sh("nmcli", *args, check=check)
+
+
+def online():
+    """True if a real network (not our hotspot) is up on Wi-Fi or Ethernet."""
+    out = nmcli("-t", "-f", "NAME,TYPE,STATE", "connection", "show", "--active").stdout
+    for line in out.splitlines():
+        name, ctype, state = (line.rsplit(":", 2) + ["", ""])[:3]
+        if name != HOTSPOT_CON and state == "activated" and \
+                ctype in ("802-11-wireless", "802-3-ethernet"):
+            return True
+    return False
+
+
+def hotspot_up():
+    out = nmcli("-t", "-f", "NAME", "connection", "show", "--active").stdout
+    return HOTSPOT_CON in out.splitlines()
+
+
+def hotspot_clients():
+    """Number of devices with a live neighbour entry on the hotspot interface."""
+    out = sh("ip", "neigh", "show", "dev", IFACE).stdout
+    return sum(1 for line in out.splitlines() if any(s in line for s in ("REACHABLE", "DELAY", "PROBE")))
+
+
+def scan():
+    """Save visible networks for the setup page (scanning isn't possible while in AP mode)."""
+    nmcli("device", "wifi", "rescan", "ifname", IFACE)
+    time.sleep(4)
+    out = nmcli("-t", "-f", "SSID,SIGNAL,SECURITY", "device", "wifi", "list", "ifname", IFACE).stdout
+    networks = {}
+    for line in out.splitlines():
+        ssid, signal, security = (line.replace("\\:", "\0").split(":") + ["", "", ""])[:3]
+        ssid = ssid.replace("\0", ":")
+        if ssid and ssid != SSID and int(signal or 0) > networks.get(ssid, {}).get("signal", -1):
+            networks[ssid] = {"ssid": ssid, "signal": int(signal or 0), "secure": bool(security.strip())}
+    write_json(SCAN_FILE, sorted(networks.values(), key=lambda n: -n["signal"]))
+
+
+def write_json(path, data):
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data))
+    tmp.chmod(0o644)
+    tmp.replace(path)
+
+
+def ensure_hotspot_profile():
+    nmcli("connection", "delete", HOTSPOT_CON)
+    nmcli("connection", "add", "type", "wifi", "ifname", IFACE, "con-name", HOTSPOT_CON,
+          "autoconnect", "no", "ssid", SSID,
+          "802-11-wireless.mode", "ap", "802-11-wireless.band", "bg",
+          "ipv4.method", "shared", "ipv4.addresses", f"{AP_IP}/24", "ipv6.method", "disabled",
+          "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", PASSWORD, check=True)
+
+
+def portal(enable):
+    """Redirect port 80 on the hotspot to the web UI (so phones open the setup page)."""
+    sh("nft", "delete", "table", "ip", NFT_TABLE)
+    if enable:
+        rules = f"""table ip {NFT_TABLE} {{
+    chain pre {{
+        type nat hook prerouting priority -100;
+        iifname "{IFACE}" tcp dport 80 redirect to :{WEB_PORT}
+    }}
+}}
+"""
+        sh("nft", "-f", "-", input=rules, check=True)
+
+
+def start_hotspot():
+    log("Starting hotspot")
+    scan()
+    ensure_hotspot_profile()
+    nmcli("connection", "up", HOTSPOT_CON, check=True)
+    write_json(STATE_FILE, {"ssid": SSID, "password": PASSWORD, "ip": AP_IP, "since": time.time()})
+    try:
+        portal(True)
+    except Exception as e:  # setup still works via http://10.42.0.1:5000
+        log(f"Captive portal redirect failed: {e}")
+
+
+def stop_hotspot():
+    log("Stopping hotspot")
+    portal(False)
+    nmcli("connection", "down", HOTSPOT_CON)
+    STATE_FILE.unlink(missing_ok=True)
+
+
+def try_known_networks():
+    """Take the hotspot down and give NetworkManager time to join a known network."""
+    stop_hotspot()
+    nmcli("device", "wifi", "rescan", "ifname", IFACE)
+    deadline = time.time() + RECONNECT_WAIT
+    while time.time() < deadline:
+        if online():
+            log("Connected to a known network")
+            return True
+        time.sleep(3)
+    log("No known network reachable")
+    return False
+
+
+def daemon():
+    if len(PASSWORD) < 8:
+        log("WIFI_SETUP_PASSWORD missing or shorter than 8 characters; not starting")
+        sys.exit(1)
+    RUN_DIR.mkdir(mode=0o755, exist_ok=True)
+    # Clean up after a previous run (e.g. service restart while the hotspot was up)
+    if hotspot_up():
+        stop_hotspot()
+    STATE_FILE.unlink(missing_ok=True)
+    offline_since = None if online() else time.time()
+    hotspot_started = time.time()
+    log(f"Watching Wi-Fi: hotspot after {FALLBACK_MINUTES:g} min offline")
+
+    while True:
+        if not hotspot_up():
+            if online():
+                offline_since = None
+            elif offline_since is None:
+                offline_since = time.time()
+                log("Offline")
+            elif time.time() - offline_since > FALLBACK_MINUTES * 60:
+                try:
+                    start_hotspot()
+                    hotspot_started = time.time()
+                except Exception as e:
+                    log(f"Hotspot failed: {e}")
+                    offline_since = time.time()
+            time.sleep(5)
+            continue
+
+        # Hotspot is up
+        retry_requested = RETRY_FILE.exists()
+        idle_retry = (time.time() - hotspot_started > RETRY_MINUTES * 60 and hotspot_clients() == 0)
+        if retry_requested or idle_retry:
+            RETRY_FILE.unlink(missing_ok=True)
+            if retry_requested:
+                time.sleep(3)  # let the web UI finish its response to the phone
+            if try_known_networks():
+                offline_since = None
+            else:
+                start_hotspot()
+                hotspot_started = time.time()
+        time.sleep(2)
+
+
+def test(seconds):
+    log(f"Test: hotspot for {seconds} s")
+    RUN_DIR.mkdir(mode=0o755, exist_ok=True)
+    start_hotspot()
+    time.sleep(seconds)
+    try_known_networks()
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--test":
+        test(int(sys.argv[2]))
+    else:
+        daemon()

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Connecting…{% endblock %}
+{% block content %}
+<h1>Connecting to {{ ssid }}…</h1>
+<p class="subtitle">The setup hotspot is closing now, so this page will lose its connection. That's expected.</p>
+<p>If the password is right, the display goes back to normal within a minute, and you can open it at
+<b>http://pidisplay.local:5000</b> from your home network.</p>
+<p style="margin-top:12px">If it can't connect, the hotspot <b>pidisplay-setup</b> comes back in about a minute.
+Join it again to retry.</p>
+{% endblock %}

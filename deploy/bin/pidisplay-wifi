@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""
+Save a Wi-Fi network (run by the web UI through sudo; see deploy/sudoers/display-control).
+
+Reads {"ssid": "...", "password": "..."} as JSON on stdin, so the password never shows up
+in the process list. Creates/replaces the NetworkManager profile "wifi-<ssid>". If the setup
+hotspot is up, asks wifi-fallback to try connecting right away.
+"""
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+RETRY_FILE = Path("/run/pidisplay/retry")
+STATE_FILE = Path("/run/pidisplay/hotspot.json")
+
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(1)
+
+
+data = json.load(sys.stdin)
+ssid = str(data.get("ssid", ""))
+password = str(data.get("password", ""))
+if not (1 <= len(ssid.encode()) <= 32):
+    fail("SSID must be 1-32 bytes")
+if password and not (8 <= len(password) <= 63):
+    fail("Password must be 8-63 characters (or empty for an open network)")
+
+name = f"wifi-{ssid}"
+subprocess.run(["nmcli", "connection", "delete", name], capture_output=True)
+cmd = ["nmcli", "connection", "add", "type", "wifi", "ifname", "wlan0", "con-name", name,
+       "ssid", ssid, "autoconnect", "yes", "connection.autoconnect-priority", "10"]
+if password:
+    cmd += ["wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", password]
+r = subprocess.run(cmd, capture_output=True, text=True)
+if r.returncode != 0:
+    fail(r.stderr.strip() or "nmcli failed")
+
+if STATE_FILE.exists():
+    RETRY_FILE.touch()
+    print("saved; reconnecting")
+else:
+    print("saved")

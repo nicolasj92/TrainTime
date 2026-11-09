@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Departures settings{% endblock %}
+{% block content %}
+<h1>Departures</h1>
+<p class="subtitle">Which stop, which directions and which lines the panel shows</p>
+
+<form method="post" id="form">
+  <label>RMV API key</label>
+  <input type="password" name="token" placeholder="{{ 'saved – leave empty to keep' if has_token else 'from opendata.rmv.de' }}" autocomplete="off">
+  {% if not has_token %}<p class="hint">Register for free at opendata.rmv.de and request API access. Save the key first, then the searches below work.</p>{% endif %}
+
+  <h2>From</h2>
+  <input type="hidden" name="station_id" id="station_id" value="{{ station_id }}">
+  <input type="hidden" name="station_name" id="station_name" value="{{ station_name }}">
+  <p id="station_show"><b>{{ station_name or 'Stop ' ~ station_id }}</b> <span class="hint">({{ station_id }})</span></p>
+  <div class="row"><input type="text" id="station_q" placeholder="Search stop, e.g. Luisenplatz"><button type="button" class="btn small grey" onclick="search('station')">Search</button></div>
+  <div class="list" id="station_results" hidden></div>
+
+  <h2>To (directions)</h2>
+  <p class="hint">Only departures that pass these stops are shown. The label (max 8 characters) appears on the 64×32 panel. No directions = everything.</p>
+  <div id="dirs">
+    {% for d in directions %}
+    <div class="row" style="margin-top:8px"><input type="text" name="dir_label" value="{{ d.label }}" maxlength="8"><input type="text" name="dir_id" value="{{ d.id }}" readonly><button type="button" class="btn small grey" onclick="this.parentNode.remove()">Remove</button></div>
+    {% endfor %}
+  </div>
+  <div class="row" style="margin-top:10px"><input type="text" id="dir_q" placeholder="Add direction: search stop, e.g. Hauptbahnhof"><button type="button" class="btn small grey" onclick="search('dir')">Search</button></div>
+  <div class="list" id="dir_results" hidden></div>
+
+  <h2>Lines</h2>
+  <p class="hint">Tick lines to show only those. Nothing ticked = all lines.</p>
+  <div class="chips" id="lines">
+    {% for l in lines %}<label><input type="checkbox" name="lines" value="{{ l }}" checked> {{ l }}</label>{% endfor %}
+  </div>
+  <button type="button" class="btn small grey" style="margin-top:10px" onclick="loadLines()">Load lines at this stop</button>
+
+  <h2>Walking time</h2>
+  <label>Hide departures leaving sooner than (minutes)</label>
+  <input type="number" name="walk" min="0" max="60" value="{{ walk }}">
+
+  <button class="btn" type="submit">Save &amp; apply</button>
+</form>
+
+<script>
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+async function api(url){ const r = await fetch(url); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; }
+async function search(kind){
+  const box = document.getElementById(kind + '_results');
+  box.hidden = false; box.innerHTML = '<div>Searching…</div>';
+  try {
+    const stops = await api('/api/rmv/stations?q=' + encodeURIComponent(document.getElementById(kind + '_q').value));
+    box.innerHTML = stops.length ? '' : '<div>No stops found</div>';
+    for (const s of stops) {
+      const b = document.createElement('button'); b.type = 'button';
+      b.innerHTML = esc(s.name) + ' <span class="hint">' + esc(s.id) + '</span>';
+      b.onclick = () => kind === 'station' ? pickStation(s) : addDir(s);
+      box.appendChild(b);
+    }
+  } catch (e) { box.innerHTML = '<div>' + esc(e.message) + '</div>'; }
+}
+function pickStation(s){
+  document.getElementById('station_id').value = s.id;
+  document.getElementById('station_name').value = s.name;
+  document.getElementById('station_show').innerHTML = '<b>' + esc(s.name) + '</b> <span class="hint">(' + esc(s.id) + ')</span>';
+  document.getElementById('station_results').hidden = true;
+}
+function addDir(s){
+  const label = s.name.replace(/^.*?[-, ]\s*/, '').slice(0, 8);
+  const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '8px';
+  row.innerHTML = '<input type="text" name="dir_label" maxlength="8"><input type="text" name="dir_id" readonly><button type="button" class="btn small grey">Remove</button>';
+  row.children[0].value = label; row.children[1].value = s.id;
+  row.children[2].onclick = () => row.remove();
+  document.getElementById('dirs').appendChild(row);
+  document.getElementById('dir_results').hidden = true;
+}
+async function loadLines(){
+  const box = document.getElementById('lines');
+  const checked = new Set([...box.querySelectorAll('input:checked')].map(i => i.value));
+  try {
+    const lines = await api('/api/rmv/lines?station=' + encodeURIComponent(document.getElementById('station_id').value));
+    box.innerHTML = '';
+    for (const l of lines) {
+      const lab = document.createElement('label');
+      lab.innerHTML = '<input type="checkbox" name="lines"> ' + esc(l);
+      lab.firstChild.value = l; lab.firstChild.checked = checked.has(l);
+      box.appendChild(lab);
+    }
+  } catch (e) { alert(e.message); }
+}
+</script>
+{% endblock %}

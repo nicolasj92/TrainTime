@@ -1,0 +1,14 @@
+[Unit]
+Description=TrainTime Wi-Fi fallback (setup hotspot when offline)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+Environment=TRAINTIME_ENV=/home/pi/workspace/TrainTime/display_control/.env
+ExecStart=/usr/local/sbin/pidisplay-wifi-fallback
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

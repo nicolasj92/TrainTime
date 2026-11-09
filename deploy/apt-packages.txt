@@ -7,3 +7,5 @@ python3-numpy
 python3-requests
 python3-flask
 python3-dotenv
+dnsmasq-base
+nftables

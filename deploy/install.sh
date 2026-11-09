@@ -57,12 +57,25 @@ echo "==> sudoers (lets the web UI restart the display service)"
 sudo install -m 0440 -o root -g root "$DEPLOY/sudoers/display-control" /etc/sudoers.d/display-control
 sudo visudo -cf /etc/sudoers.d/display-control
 
+echo "==> Wi-Fi fallback (setup hotspot when offline)"
+sudo install -m 0755 -o root -g root "$DEPLOY/bin/wifi-fallback" /usr/local/sbin/pidisplay-wifi-fallback
+sudo install -m 0755 -o root -g root "$DEPLOY/bin/pidisplay-wifi" /usr/local/sbin/pidisplay-wifi
+sudo install -d /etc/NetworkManager/dnsmasq-shared.d
+sudo install -m 0644 "$DEPLOY/networkmanager/pidisplay-portal.conf" /etc/NetworkManager/dnsmasq-shared.d/
+if ! grep -q '^WIFI_SETUP_PASSWORD=.\{8,\}' "$ENV"; then
+  # 8 chars without look-alikes (0/o, 1/l/i) so it's easy to read off the panel
+  PW="$(python3 -c 'import secrets; print("".join(secrets.choice("abcdefghjkmnpqrstuvwxyz23456789") for _ in range(8)))')"
+  sed -i "s/^WIFI_SETUP_PASSWORD=.*/WIFI_SETUP_PASSWORD=$PW/" "$ENV"
+  echo "    hotspot password: $PW (also shown on the display while the hotspot is up)"
+fi
+
 echo "==> systemd services"
-for s in traintime display-control-web; do
+for s in traintime display-control-web wifi-fallback; do
   sudo install -m 0644 "$DEPLOY/systemd/$s.service" /etc/systemd/system/$s.service
 done
 sudo systemctl daemon-reload
-sudo systemctl enable --now traintime.service display-control-web.service
+sudo systemctl enable --now traintime.service display-control-web.service wifi-fallback.service
+sudo systemctl restart wifi-fallback.service  # pick up new script/settings
 
 echo
 echo "Done. Web control: http://$(hostname -I | awk '{print $1}'):5000"

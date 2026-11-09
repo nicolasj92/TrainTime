@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Wi-Fi setup{% endblock %}
+{% block content %}
+<h1>Wi-Fi</h1>
+{% if hotspot %}
+<p class="subtitle">The display couldn't reach a known Wi-Fi network, so it opened this setup hotspot.
+Pick your network and enter its password.</p>
+{% else %}
+<p class="subtitle">Connected to <b>{{ current or 'Ethernet' }}</b>. Networks added here are preferred whenever
+they're in range. If none works for a few minutes, the display opens the setup hotspot
+<b>pidisplay-setup</b> (password shown on the panel).</p>
+{% endif %}
+
+<form method="post">
+  <label>Network</label>
+  <input type="text" name="ssid" id="ssid" required maxlength="32" autocomplete="off" placeholder="Network name">
+  <div class="list">
+    {% for n in networks[:12] %}
+    <button type="button" onclick="document.getElementById('ssid').value=this.dataset.ssid; document.getElementById('pw').focus()" data-ssid="{{ n.ssid }}">
+      <span>{{ n.ssid }}</span><span class="hint">{{ '🔒 ' if n.secure }}{{ n.signal }}%</span>
+    </button>
+    {% else %}<div class="hint">No networks found – type the name above</div>{% endfor %}
+  </div>
+  <label>Password</label>
+  <input type="password" name="password" id="pw" maxlength="63" autocomplete="off" placeholder="Empty for an open network">
+  <button class="btn" type="submit">{{ 'Connect' if hotspot else 'Save network' }}</button>
+</form>
+
+{% if saved %}
+<h2>Saved networks</h2>
+<div class="list">{% for s in saved %}<div>{{ s }}</div>{% endfor %}</div>
+{% endif %}
+{% endblock %}

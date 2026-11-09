@@ -242,19 +242,6 @@ class Display:
         self.text(self.font_large, x, y, self.white, time_str)
         return x, width
 
-    def message(self, lines, icon=None, color=(255, 255, 255)):
-        """Full-screen message: optional icon top-left, then lines in the small font."""
-        self.clear()
-        y = 6
-        if icon is not None:
-            icon(self, 0, 0).draw()
-            self.text(self.font_small, 10, 6, color, lines[0])
-            lines, y = lines[1:], 14
-        for line in lines:
-            self.text(self.font_small, 0, y, color, line)
-            y += 7
-        self.swap()
-
     def error(self, message):
         """Clock, red square and a short message. Used by modes when something fails."""
         self.clear()
@@ -262,6 +249,44 @@ class Display:
         IconError(self, (self.width - 8) // 2, 10).draw()
         font = self.font_large if self.wide else self.font_small
         self.text(font, 0, 24, self.white, message)
+
+
+# --- Wi-Fi setup screen ------------------------------------------------------------
+
+HOTSPOT_STATE = Path('/run/pidisplay/hotspot.json')  # written by deploy/bin/wifi-fallback
+
+
+class WifiSetupScreen:
+    """Shown instead of the current mode while the setup hotspot is up."""
+
+    def __init__(self, display, ssid, password, ip):
+        self.d = display
+        self.lines = [ssid, f"pw {password}", ip]
+        self.ticker = f"Join {ssid}  pw {password}  open {ip}   "
+        self.scroll = 0
+
+    def frame(self):
+        d = self.d
+        d.clear()
+        IconWifi(d, 0, 0).draw()
+        d.text(d.font_small, 10, 6, (110, 170, 255), "WiFi setup" if d.wide else "WiFi")
+        if d.wide:
+            for i, line in enumerate(self.lines):
+                d.text(d.font_small, 0, 14 + i * 7, d.white, line)
+        else:
+            width = d.text_width(d.font_large, self.ticker)
+            x = -(self.scroll % width)
+            while x < d.width:
+                x += d.text(d.font_large, x, 22, d.white, self.ticker)
+            self.scroll += 1
+
+
+def read_hotspot_state():
+    try:
+        import json
+        return json.loads(HOTSPOT_STATE.read_text())
+    except (OSError, ValueError):
+        return None
 
 
 # --- Running a mode ----------------------------------------------------------------
@@ -284,13 +309,22 @@ def run(mode_class):
         return
     display = Display()
     mode = mode_class(display)
-    frame_time = 1.0 / mode.fps
     print(f"Starting {mode_class.__name__}...", flush=True)
+    setup_screen, next_check = None, 0
     try:
         while True:
             started = time.monotonic()
+            if started >= next_check:  # is the Wi-Fi setup hotspot up?
+                state = read_hotspot_state()
+                if state and setup_screen is None:
+                    setup_screen = WifiSetupScreen(display, state['ssid'], state['password'], state['ip'])
+                elif not state:
+                    setup_screen = None
+                next_check = started + 2
+            current = setup_screen or mode
+            frame_time = 1.0 / (15 if setup_screen else mode.fps)
             try:
-                mode.frame()
+                current.frame()
             except Exception as e:  # keep the panel alive and show what went wrong
                 print(f"Error drawing frame: {e!r}", flush=True)
                 display.error("Error")

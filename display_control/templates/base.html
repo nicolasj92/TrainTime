@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}LED Display Control{% endblock %}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-left: 4px solid #667eea;
+        }
+
+        .status-label {
+            font-size: 0.85em;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+
+        .status-value {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .status-active {
+            color: #28a745;
+        }
+
+        .status-inactive {
+            color: #dc3545;
+        }
+
+        .status-unknown {
+            color: #ffc107;
+        }
+
+        .modes-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .mode-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .mode-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .mode-card.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+        }
+
+        .mode-name {
+            font-size: 1.3em;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .mode-description {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .mode-card.active .mode-description {
+            opacity: 0.9;
+        }
+
+        .active-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.3);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75em;
+            margin-left: 10px;
+            font-weight: 500;
+        }
+
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background 0.3s ease;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .refresh-btn:hover {
+            background: #5568d3;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #666;
+            font-size: 0.85em;
+        }
+
+        @media (min-width: 640px) {
+            .modes-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+    
+        nav { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+        nav a { padding: 8px 14px; border-radius: 999px; background: #f0f1f5; color: #444;
+                text-decoration: none; font-size: 0.9em; font-weight: 600; }
+        nav a.on { background: #667eea; color: white; }
+        label { display: block; font-size: 0.85em; color: #555; margin: 14px 0 6px; font-weight: 600; }
+        input[type=text], input[type=password], input[type=number], select {
+            width: 100%; padding: 10px 12px; border: 1px solid #d5d8e0; border-radius: 8px; font-size: 1em; }
+        .row { display: flex; gap: 8px; align-items: center; }
+        .row > * { flex: 1; }
+        .btn { display: inline-block; margin-top: 18px; padding: 12px 18px; border: 0; border-radius: 10px;
+               background: #667eea; color: white; font-size: 1em; font-weight: 600; cursor: pointer; text-decoration: none; }
+        .btn.small { margin-top: 0; padding: 8px 12px; font-size: 0.85em; flex: 0 0 auto; }
+        .btn.grey { background: #e4e6ee; color: #333; }
+        .hint { color: #777; font-size: 0.85em; margin-top: 6px; }
+        .notice { padding: 12px 14px; border-radius: 10px; margin-bottom: 18px; background: #eef7ee; color: #225c22; }
+        .notice.err { background: #fbeaea; color: #8a1f1f; }
+        .list { margin-top: 8px; border: 1px solid #e3e5ec; border-radius: 10px; overflow: hidden; }
+        .list > * { display: flex; justify-content: space-between; padding: 10px 12px; border-top: 1px solid #eee;
+                    background: white; text-decoration: none; color: #333; width: 100%; text-align: left;
+                    border-left: 0; border-right: 0; border-bottom: 0; font-size: 0.95em; cursor: pointer; }
+        .list > *:first-child { border-top: 0; }
+        .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+        .chips label { display: inline-flex; gap: 6px; align-items: center; margin: 0; padding: 6px 10px;
+                       background: #f0f1f5; border-radius: 999px; font-weight: 500; }
+        h2 { color: #333; font-size: 1.15em; margin: 26px 0 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <nav>
+            <a href="/" class="{{ 'on' if page == 'modes' }}">Modes</a>
+            <a href="/departures" class="{{ 'on' if page == 'departures' }}">Departures</a>
+            <a href="/wifi" class="{{ 'on' if page == 'wifi' }}">Wi-Fi</a>
+        </nav>
+        {% if notice %}<div class="notice {{ 'err' if notice_error }}">{{ notice }}</div>{% endif %}
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

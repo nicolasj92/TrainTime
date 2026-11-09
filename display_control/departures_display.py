@@ -28,6 +28,8 @@ STATION_ID = os.getenv("RMV_STATION_ID") or "3004736"
 # "id:label,id:label" - only departures heading via these stops. Empty = all departures.
 DIRECTIONS = [d.split(":", 1) for d in os.getenv("RMV_DIRECTIONS", "3024730:Hbf,3004734:LiWi").split(",")
               if ":" in d]
+# Only these lines (comma-separated). Empty = all lines.
+LINES = {x.strip() for x in (os.getenv("RMV_LINES") or "").split(",") if x.strip()}
 WALK_MINUTES = int(os.getenv("RMV_WALK_MINUTES") or 2)
 POLL_SECONDS = int(os.getenv("RMV_POLL_SECONDS") or 90)
 RMV_TZ = ZoneInfo("Europe/Berlin")  # RMV times are German local time, whatever the Pi's TZ
@@ -103,6 +105,8 @@ class DepartureSource:
                 raise RuntimeError(f'{data["errorCode"]}: {data.get("errorText", "")}')
             departures += [parse_departure(o, label, index) for o in data.get("Departure", [])]
         # A line can serve several configured directions; show it once
+        if LINES:
+            departures = [d for d in departures if d.line in LINES]
         unique = {(d.line, d.planned, d.direction): d for d in departures}
         return sorted(unique.values(), key=lambda d: d.expected)
 

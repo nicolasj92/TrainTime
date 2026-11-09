@@ -106,8 +106,9 @@ def render(mode, size, out_dir, frames_for_gif=0):
         m = Departures(d, source=sample_departures())
         warmup = 1
     elif mode == "wifi":
-        d.message(["Setup", "WiFi:", "pidisplay-setup", "pw: 1a2b3c4d"], icon=utils.IconWifi)
-        m, warmup = None, 0
+        m = utils.WifiSetupScreen(d, "pidisplay-setup", "k3x9m2qa", "10.42.0.1")
+        m.fps = 15
+        warmup = 12
     else:
         raise ValueError(mode)
 
