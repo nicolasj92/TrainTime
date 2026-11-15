@@ -9,6 +9,7 @@ modes, and you switch between them from a small web page on the Pi.
 | Power Flow | ![](display_control/previews/power_64x32.png) | ![](display_control/previews/power_32x32.png) |
 | Departures | ![](display_control/previews/departures_64x32.png) | ![](display_control/previews/departures_32x32.png) |
 | Sky Clock | ![](display_control/previews/sky_64x32.gif) | ![](display_control/previews/sky_32x32.gif) |
+| Sky Clock day | ![](display_control/previews/sky_day_64x32.png) | ![](display_control/previews/sky_day_32x32.png) |
 | Sky Clock weather | ![](display_control/previews/sky_weather_64x32.png) | ![](display_control/previews/sky_weather_32x32.png) |
 
 ## Display modes
@@ -32,7 +33,7 @@ Open **http://pidisplay.local:5000** (or the Pi's IP):
 - **Pictures**: upload photos, crop them with a live preview of the panel, pick and order them, set the interval and transition
 - **Departures**: RMV key, the stop to show (search by name), directions with short labels, a line filter and walking time
 - **Wi-Fi**: add networks the Pi should use (also the setup page of the hotspot, see below)
-- **System**: software version and updates, location for the Sky Clock (place search), weather on/off, brightness
+- **System**: software version and updates, location for the Sky Clock (place search), weather on/off, brightness, restart and shut down
 
 Settings are saved to `display_control/.env`, and the display restarts to apply them. Modes can also be switched through the API:
 
@@ -66,7 +67,6 @@ deploy/release.sh 1.1.0     # writes VERSION, commits, tags v1.1.0, pushes
 ```
 
 GitHub Actions (`.github/workflows/release.yml`) then creates the release with notes from the commits.
-For a private repository, put a fine-grained token with *Contents: read* in `GITHUB_TOKEN` (System page).
 
 ## Wi-Fi setup hotspot
 
@@ -165,7 +165,7 @@ Everything goes in `display_control/.env`, which is gitignored. The template is
 | `WIFI_FALLBACK_MINUTES` | Wi-Fi | Minutes offline before the setup hotspot opens (default 3) |
 | `WIFI_RETRY_MINUTES` | Wi-Fi | Retry known networks this often while nobody uses the hotspot (default 10) |
 | `WIFI_SETUP_SSID` / `WIFI_SETUP_PASSWORD` | Wi-Fi | Hotspot name and password (`install.sh` generates the password) |
-| `GITHUB_REPO` / `GITHUB_TOKEN` | Updates | Where releases come from; token only for a private repository |
+| `GITHUB_REPO` | Updates | Public repository the releases come from |
 
 The RMV settings are easiest to change on the **Departures** page of the web UI.
 

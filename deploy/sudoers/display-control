@@ -9,3 +9,4 @@ pi ALL=(root) NOPASSWD: /usr/local/sbin/pidisplay-wifi
 # Software update from the web UI's System page (runs deploy/bin/pidisplay-update as root)
 pi ALL=(ALL) NOPASSWD: /bin/systemctl start --no-block pidisplay-update.service
 pi ALL=(ALL) NOPASSWD: /bin/systemctl reboot
+pi ALL=(ALL) NOPASSWD: /bin/systemctl poweroff

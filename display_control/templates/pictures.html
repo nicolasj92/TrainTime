@@ -2,30 +2,33 @@
 {% block title %}Pictures{% endblock %}
 {% block content %}
 <style>
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 14px; }
-  .pic { background: #f8f9fa; border-radius: 12px; padding: 8px; border: 2px solid transparent; }
-  .pic.off { opacity: 0.5; }
-  .pic canvas { width: 100%; display: block; border-radius: 6px; background: #111; cursor: pointer; }
-  .pic .name { font-size: 0.8em; color: #555; margin: 6px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pic .tools { display: flex; gap: 4px; align-items: center; }
-  .pic .tools button { border: 0; background: #e4e6ee; border-radius: 6px; padding: 5px 8px; cursor: pointer; font-size: 0.8em; }
-  .pic .tools label { margin: 0 auto 0 0; font-weight: 500; display: flex; gap: 4px; align-items: center; font-size: 0.85em; }
-  .upload { display: inline-block; cursor: pointer; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; margin-top: 18px; }
+  .pic { background: var(--card); border-radius: 18px; padding: 10px; box-shadow: var(--shadow); transition: opacity .2s; }
+  .pic.off canvas { opacity: .35; }
+  .pic canvas { width: 100%; display: block; border-radius: 10px; background: var(--panel); cursor: pointer; }
+  .pic .name { font-size: 15px; font-weight: 600; margin: 8px 2px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pic .tools { display: flex; gap: 6px; align-items: center; }
+  .pic .tools button { border: 0; background: var(--fill); color: var(--text); border-radius: 8px; width: 32px; height: 30px;
+                       cursor: pointer; font-size: 13px; }
+  .pic .tools button:disabled { opacity: .35; cursor: default; }
+  .pic .tools button.del { color: var(--red); }
+  .pic .tools .switch { margin-right: auto; font-size: 14px; gap: 8px; }
+  .pic .tools .switch input { transform: scale(.8); transform-origin: left center; margin-right: -10px; }
+  .upload { cursor: pointer; margin-top: 0; }
   .upload input { display: none; }
-  #editor { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: none; align-items: center;
-            justify-content: center; padding: 14px; z-index: 10; }
-  #editor .panel { background: white; border-radius: 16px; padding: 18px; max-width: 720px; width: 100%;
-                   max-height: 100%; overflow: auto; }
-  #stage { position: relative; touch-action: none; user-select: none; margin: 10px auto; width: fit-content; }
-  #stage img { display: block; max-width: 100%; max-height: 52vh; }
-  #box { position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0,0,0,.55); cursor: move; }
-  #big { width: 100%; max-width: 384px; display: block; margin: 8px auto; border-radius: 6px; background: #111; }
-  input[type=range] { width: 100%; }
+  #editor { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            display: none; align-items: center; justify-content: center; padding: 14px; z-index: 10; }
+  #editor .panel { background: var(--bg); border-radius: 22px; padding: 20px; max-width: 720px; width: 100%;
+                   max-height: 100%; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  #stage { position: relative; touch-action: none; user-select: none; -webkit-user-select: none; margin: 12px auto; width: fit-content; }
+  #stage img { display: block; max-width: 100%; max-height: 50vh; border-radius: 8px; }
+  #box { position: absolute; border: 2px solid #fff; border-radius: 4px; box-shadow: 0 0 0 9999px rgba(0,0,0,.55); cursor: move; }
+  #big { width: 100%; max-width: 420px; display: block; margin: 6px auto; border-radius: 10px; background: var(--panel); }
 </style>
 
 <h1>Pictures</h1>
 <p class="subtitle">Slideshow for the Pictures mode. Tap a picture to choose the part the {{ panel }} panel shows.</p>
-{% if not showing %}<p class="notice">The display isn't in Pictures mode. <a href="/switch/picture">Show pictures now</a></p>{% endif %}
+{% if not showing %}<div class="notice">The display isn't showing pictures right now. <a href="/switch/picture">Show pictures</a></div>{% endif %}
 
 <label class="btn upload">+ Add pictures<input type="file" id="file" accept="image/*" multiple></label>
 <span class="hint" id="upmsg"></span>
@@ -34,11 +37,12 @@
 <p class="hint" id="empty" hidden>No pictures yet.</p>
 
 <h2>Slideshow</h2>
-<form method="post">
+<form method="post"><div class="card">
   <div class="row">
     <div><label>Seconds per picture</label><input type="number" name="seconds" min="3" max="3600" value="{{ seconds }}"></div>
     <div><label>Transition</label>
       <select name="transition">{% for k, v in transitions.items() %}<option value="{{ k }}" {{ 'selected' if k == transition }}>{{ v }}</option>{% endfor %}</select></div>
+  </div>
   </div>
   <button class="btn" type="submit">Save</button>
 </form>
@@ -47,7 +51,7 @@
   <h2 style="margin-top:0">Choose the part to show</h2>
   <p class="hint">Drag the frame, zoom with the slider (or mouse wheel).</p>
   <div id="stage"><img id="cimg" alt=""><div id="box"></div></div>
-  <label>Zoom</label><input type="range" id="zoom" min="10" max="100" value="100">
+  <label>Zoom</label><input type="range" id="zoom" min="10" max="100" value="100" style="direction:rtl">
   <label>On the panel</label><canvas id="big"></canvas>
   <div class="row" style="margin-top:6px">
     <button class="btn grey" type="button" onclick="closeEditor()">Cancel</button>
@@ -111,9 +115,9 @@ function render() {
     const card = document.createElement('div');
     card.className = 'pic' + (p.enabled ? '' : ' off');
     card.innerHTML = `<canvas title="Choose the part to show"></canvas><div class="name"></div>
-      <div class="tools"><label><input type="checkbox" ${p.enabled ? 'checked' : ''}> Show</label>
-      <button title="Earlier" ${i ? '' : 'disabled'}>◀</button><button title="Later" ${i < pics.length - 1 ? '' : 'disabled'}>▶</button>
-      <button title="Delete">✕</button></div>`;
+      <div class="tools"><label class="switch"><input type="checkbox" ${p.enabled ? 'checked' : ''}></label>
+      <button title="Earlier" ${i ? '' : 'disabled'}>‹</button><button title="Later" ${i < pics.length - 1 ? '' : 'disabled'}>›</button>
+      <button title="Delete" class="del">✕</button></div>`;
     card.querySelector('.name').textContent = p.name;
     const img = new Image();
     img.onload = () => ledPreview(card.querySelector('canvas'), img, cropOf(p, img));

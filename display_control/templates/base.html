@@ -1,207 +1,139 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}LED Display Control{% endblock %}</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>{% block title %}LED Display{% endblock %}</title>
+<style>
+  :root {
+    --bg: #f5f5f7; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73; --line: rgba(0,0,0,.09);
+    --fill: #e8e8ed; --accent: #0071e3; --accent-soft: rgba(0,113,227,.10); --green: #248a3d;
+    --red: #d70015; --red-soft: rgba(215,0,21,.08); --shadow: 0 1px 2px rgba(0,0,0,.04), 0 6px 20px rgba(0,0,0,.05);
+    --bar: rgba(245,245,247,.78); --panel: #0b0b0c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000; --card: #1c1c1e; --text: #f5f5f7; --muted: #98989d; --line: rgba(255,255,255,.10);
+      --fill: #2c2c2e; --accent: #0a84ff; --accent-soft: rgba(10,132,255,.16); --green: #30d158;
+      --red: #ff453a; --red-soft: rgba(255,69,58,.12); --shadow: none; --bar: rgba(22,22,23,.78); --panel: #000;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Inter, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 17px; line-height: 1.47; letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+  }
+  a { color: var(--accent); text-decoration: none; }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
+  /* --- top bar with segmented navigation --- */
+  header {
+    position: sticky; top: 0; z-index: 5; background: var(--bar);
+    backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--line); padding: env(safe-area-inset-top) 0 0;
+  }
+  nav { max-width: 720px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 4px; overflow-x: auto;
+        scrollbar-width: none; }
+  nav::-webkit-scrollbar { display: none; }
+  nav a { flex: 0 0 auto; padding: 6px 14px; border-radius: 999px; color: var(--text); font-size: 15px;
+          font-weight: 500; opacity: .75; transition: background .2s, opacity .2s; }
+  nav a:hover { opacity: 1; }
+  nav a.on { background: var(--text); color: var(--bg); opacity: 1; }
+  nav .badge { display: inline-block; min-width: 17px; height: 17px; line-height: 17px; padding: 0 5px; margin-left: 2px;
+               border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; text-align: center; }
 
-        .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            max-width: 600px;
-            width: 100%;
-            padding: 40px;
-        }
+  .container { max-width: 720px; margin: 0 auto; padding: 28px 16px 64px; }
+  h1 { font-size: 34px; line-height: 1.12; font-weight: 700; letter-spacing: -0.025em; }
+  .subtitle { color: var(--muted); font-size: 17px; margin: 6px 0 24px; }
+  h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin: 36px 0 6px; }
+  h2:first-child { margin-top: 0; }
+  p { margin-top: 4px; }
+  .hint { color: var(--muted); font-size: 14px; margin-top: 6px; line-height: 1.4; }
+  b { font-weight: 600; }
 
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 2em;
-        }
+  /* --- cards --- */
+  .card, .status-card { background: var(--card); border-radius: 18px; padding: 18px 20px; box-shadow: var(--shadow); margin-top: 12px; }
+  .status-label { font-size: 13px; color: var(--muted); font-weight: 500; }
+  .status-value { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+  .status-active { color: var(--green); }
+  .status-inactive { color: var(--red); }
+  .status-unknown { color: #bf8700; }
+  .notice { padding: 13px 16px; border-radius: 14px; margin-bottom: 20px; background: var(--accent-soft); font-size: 15px; }
+  .notice.err { background: var(--red-soft); color: var(--red); }
 
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 0.9em;
-        }
+  /* --- forms --- */
+  label { display: block; font-size: 13px; color: var(--muted); margin: 16px 0 6px 4px; font-weight: 500; }
+  input[type=text], input[type=password], input[type=number], select {
+    width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; font: inherit;
+    background: var(--card); color: var(--text); outline: none; transition: box-shadow .15s, border-color .15s;
+    -webkit-appearance: none; appearance: none;
+  }
+  select { background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+           background-position: calc(100% - 20px) 52%, calc(100% - 15px) 52%; background-size: 5px 5px; background-repeat: no-repeat; }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+  input[readonly] { color: var(--muted); }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=checkbox] { accent-color: var(--accent); }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row > * { flex: 1; min-width: 0; }
 
-        .status-card {
-            background: #f8f9fa;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 30px;
-            border-left: 4px solid #667eea;
-        }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; margin-top: 20px;
+         padding: 12px 22px; border: 0; border-radius: 12px; background: var(--accent); color: #fff; font: inherit;
+         font-weight: 600; cursor: pointer; transition: filter .15s, transform .1s; }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:active { transform: scale(.98); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.small { margin-top: 0; padding: 9px 14px; font-size: 15px; flex: 0 0 auto; border-radius: 10px; }
+  .btn.grey { background: var(--fill); color: var(--accent); }
+  .btn.danger { background: var(--red-soft); color: var(--red); }
+  form > .btn[type=submit] { width: 100%; }
 
-        .status-label {
-            font-size: 0.85em;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 5px;
-        }
+  /* iOS-style switch: <label class="switch"><span>Text</span><input type="checkbox"></label> */
+  .switch { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0;
+            font-size: 17px; color: var(--text); font-weight: 400; cursor: pointer; }
+  .switch input { -webkit-appearance: none; appearance: none; flex: 0 0 auto; width: 51px; height: 31px; border-radius: 16px;
+                  background: var(--fill); position: relative; cursor: pointer; transition: background .2s; }
+  .switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%;
+                         background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.2); transition: transform .2s; }
+  .switch input:checked { background: #34c759; }
+  .switch input:checked::after { transform: translateX(20px); }
 
-        .status-value {
-            font-size: 1.3em;
-            font-weight: 600;
-            color: #333;
-        }
+  /* grouped list (search results, networks) */
+  .list { margin-top: 10px; background: var(--card); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+  .list > * { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; padding: 13px 16px;
+              background: none; border: 0; border-top: 1px solid var(--line); color: var(--text); font: inherit;
+              text-align: left; cursor: pointer; }
+  .list > *:first-child { border-top: 0; }
+  .list > button:hover { background: var(--accent-soft); }
+  .list .hint { margin: 0; }
 
-        .status-active {
-            color: #28a745;
-        }
+  /* toggle pills (line filter) */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .chips label { display: inline-flex; align-items: center; margin: 0; padding: 7px 14px; border-radius: 999px;
+                 background: var(--fill); color: var(--text); font-size: 15px; font-weight: 500; cursor: pointer; }
+  .chips label:has(input:checked) { background: var(--accent); color: #fff; }
+  .chips label input { position: absolute; opacity: 0; pointer-events: none; }
 
-        .status-inactive {
-            color: #dc3545;
-        }
-
-        .status-unknown {
-            color: #ffc107;
-        }
-
-        .modes-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .mode-card {
-            background: #f8f9fa;
-            border-radius: 12px;
-            padding: 20px;
-            border: 2px solid transparent;
-            transition: all 0.3s ease;
-            cursor: pointer;
-            text-decoration: none;
-            color: inherit;
-            display: block;
-        }
-
-        .mode-card:hover {
-            border-color: #667eea;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
-        }
-
-        .mode-card.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-color: #667eea;
-        }
-
-        .mode-name {
-            font-size: 1.3em;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        .mode-description {
-            font-size: 0.9em;
-            opacity: 0.8;
-        }
-
-        .mode-card.active .mode-description {
-            opacity: 0.9;
-        }
-
-        .active-badge {
-            display: inline-block;
-            background: rgba(255, 255, 255, 0.3);
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.75em;
-            margin-left: 10px;
-            font-weight: 500;
-        }
-
-        .refresh-btn {
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 12px 24px;
-            font-size: 1em;
-            cursor: pointer;
-            transition: background 0.3s ease;
-            width: 100%;
-            margin-top: 10px;
-        }
-
-        .refresh-btn:hover {
-            background: #5568d3;
-        }
-
-        .footer {
-            text-align: center;
-            margin-top: 30px;
-            color: #666;
-            font-size: 0.85em;
-        }
-
-        @media (min-width: 640px) {
-            .modes-grid {
-                grid-template-columns: 1fr 1fr;
-            }
-        }
-    
-        nav { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
-        nav a { padding: 8px 14px; border-radius: 999px; background: #f0f1f5; color: #444;
-                text-decoration: none; font-size: 0.9em; font-weight: 600; }
-        nav a.on { background: #667eea; color: white; }
-        label { display: block; font-size: 0.85em; color: #555; margin: 14px 0 6px; font-weight: 600; }
-        input[type=text], input[type=password], input[type=number], select {
-            width: 100%; padding: 10px 12px; border: 1px solid #d5d8e0; border-radius: 8px; font-size: 1em; }
-        .row { display: flex; gap: 8px; align-items: center; }
-        .row > * { flex: 1; }
-        .btn { display: inline-block; margin-top: 18px; padding: 12px 18px; border: 0; border-radius: 10px;
-               background: #667eea; color: white; font-size: 1em; font-weight: 600; cursor: pointer; text-decoration: none; }
-        .btn.small { margin-top: 0; padding: 8px 12px; font-size: 0.85em; flex: 0 0 auto; }
-        .btn.grey { background: #e4e6ee; color: #333; }
-        .hint { color: #777; font-size: 0.85em; margin-top: 6px; }
-        .notice { padding: 12px 14px; border-radius: 10px; margin-bottom: 18px; background: #eef7ee; color: #225c22; }
-        .notice.err { background: #fbeaea; color: #8a1f1f; }
-        .list { margin-top: 8px; border: 1px solid #e3e5ec; border-radius: 10px; overflow: hidden; }
-        .list > * { display: flex; justify-content: space-between; padding: 10px 12px; border-top: 1px solid #eee;
-                    background: white; text-decoration: none; color: #333; width: 100%; text-align: left;
-                    border-left: 0; border-right: 0; border-bottom: 0; font-size: 0.95em; cursor: pointer; }
-        .list > *:first-child { border-top: 0; }
-        .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
-        .chips label { display: inline-flex; gap: 6px; align-items: center; margin: 0; padding: 6px 10px;
-                       background: #f0f1f5; border-radius: 999px; font-weight: 500; }
-        nav .badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: #e5484d;
-                     color: white; font-size: 0.75em; text-align: center; }
-        h2 { color: #333; font-size: 1.15em; margin: 26px 0 4px; }
-    </style>
+  /* LED panel images */
+  .panel-img { display: block; width: 100%; background: var(--panel); border-radius: 10px; image-rendering: pixelated; }
+  pre { font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
 </head>
 <body>
-    <div class="container">
-        <nav>
-            <a href="/" class="{{ 'on' if page == 'modes' }}">Modes</a>
-            <a href="/pictures" class="{{ 'on' if page == 'pictures' }}">Pictures</a>
-            <a href="/departures" class="{{ 'on' if page == 'departures' }}">Departures</a>
-            <a href="/wifi" class="{{ 'on' if page == 'wifi' }}">Wi-Fi</a>
-            <a href="/system" class="{{ 'on' if page == 'system' }}">System{% if update_badge %} <span class="badge">1</span>{% endif %}</a>
-        </nav>
-        {% if notice %}<div class="notice {{ 'err' if notice_error }}">{{ notice }}</div>{% endif %}
-        {% block content %}{% endblock %}
-    </div>
+<header>
+  <nav>
+    <a href="/" class="{{ 'on' if page == 'modes' }}">Modes</a>
+    <a href="/pictures" class="{{ 'on' if page == 'pictures' }}">Pictures</a>
+    <a href="/departures" class="{{ 'on' if page == 'departures' }}">Departures</a>
+    <a href="/wifi" class="{{ 'on' if page == 'wifi' }}">Wi-Fi</a>
+    <a href="/system" class="{{ 'on' if page == 'system' }}">System{% if update_badge %}<span class="badge">1</span>{% endif %}</a>
+  </nav>
+</header>
+<main class="container">
+  {% if notice %}<div class="notice {{ 'err' if notice_error }}">{{ notice }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
 </body>
 </html>

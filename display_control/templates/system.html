@@ -2,77 +2,99 @@
 {% block title %}System{% endblock %}
 {% block content %}
 <h1>System</h1>
-<p class="subtitle">{{ hostname }} · software version {{ version }}</p>
+<p class="subtitle">{{ hostname }} · version {{ version }}</p>
 
-{% if reboot_required %}<div class="notice">Restart the Pi to finish the last update (boot settings changed).
-  <button class="btn small" style="margin-left:8px" onclick="fetch('/api/reboot',{method:'POST'});this.textContent='Restarting… (about a minute)'">Restart now</button></div>{% endif %}
+{% if reboot_required %}<div class="notice">Restart the Pi to finish the last update (boot settings changed).</div>{% endif %}
 
 <h2>Software update</h2>
-<div class="status-card" id="update">
+<div class="card" id="update">
   {% if latest.release %}
     {% if available %}
       <div class="status-label">New version available</div>
-      <div class="status-value">{{ latest.release.name }} <span class="hint">({{ latest.release.date }})</span></div>
+      <div class="status-value">{{ latest.release.name }} <span class="hint">{{ latest.release.date }}</span></div>
       {% if latest.release.notes %}<pre class="hint" style="white-space:pre-wrap;margin-top:10px">{{ latest.release.notes }}</pre>{% endif %}
-      <button class="btn" id="upbtn" onclick="startUpdate()">Update to {{ latest.release.tag }}</button>
+      <button class="btn" id="upbtn" style="width:100%" onclick="startUpdate()">Update to {{ latest.release.tag }}</button>
     {% else %}
       <div class="status-label">Up to date</div>
       <div class="status-value status-active">{{ version }}</div>
-      <p class="hint">Latest release: {{ latest.release.tag }} ({{ latest.release.date }})</p>
+      <p class="hint">Latest release {{ latest.release.tag }}, {{ latest.release.date }}</p>
     {% endif %}
   {% else %}
     <div class="status-label">Couldn't check for updates</div>
     <p class="hint">{{ latest.error or 'Not checked yet' }}</p>
   {% endif %}
-  <p class="hint" style="margin-top:10px"><a href="/system?check=1">Check again</a> · Updates only change the TrainTime software (modes, web pages, scripts); settings and pictures are kept.</p>
-  <div id="progress" hidden><p><b id="upstate">Starting…</b></p><pre class="hint" id="uplog" style="white-space:pre-wrap"></pre></div>
+  <div id="progress" hidden style="margin-top:14px"><b id="upstate">Starting…</b><pre class="hint" id="uplog" style="white-space:pre-wrap"></pre></div>
+  <p class="hint" style="margin-top:12px"><a href="/system?check=1">Check again</a> · Updates replace only the display software. Settings and pictures stay.</p>
 </div>
 
 <form method="post">
   <h2>Location</h2>
   <p class="hint">For the Sky Clock: where the sun and moon are, and the local weather.</p>
-  <input type="hidden" name="place" id="place" value="{{ place }}">
-  {% if place %}<p><b id="placeshow">{{ place }}</b></p>{% else %}<p><b id="placeshow"></b></p>{% endif %}
-  <div class="row"><input type="text" id="q" placeholder="Search a town, e.g. Darmstadt"><button type="button" class="btn small grey" onclick="geo()">Search</button></div>
-  <div class="list" id="results" hidden></div>
-  <div class="row">
-    <div><label>Latitude</label><input type="text" name="lat" id="lat" value="{{ lat }}"></div>
-    <div><label>Longitude</label><input type="text" name="lon" id="lon" value="{{ lon }}"></div>
+  <div class="card">
+    <input type="hidden" name="place" id="place" value="{{ place }}">
+    <div class="status-label">Current location</div>
+    <div class="status-value" id="placeshow">{{ place or (lat ~ ', ' ~ lon) }}</div>
+    <div class="row" style="margin-top:14px"><input type="text" id="q" placeholder="Search a town" onkeydown="if(event.key==='Enter'){event.preventDefault();geo()}"><button type="button" class="btn small grey" onclick="geo()">Search</button></div>
+    <div class="list" id="results" hidden></div>
+    <div class="row">
+      <div><label>Latitude</label><input type="text" name="lat" id="lat" value="{{ lat }}" inputmode="decimal"></div>
+      <div><label>Longitude</label><input type="text" name="lon" id="lon" value="{{ lon }}" inputmode="decimal"></div>
+    </div>
   </div>
-  <div class="chips" style="margin-top:12px"><label><input type="checkbox" name="weather" {{ 'checked' if weather }}> Show live weather (open-meteo.com)</label></div>
+  <div class="card">
+    <label class="switch"><span>Live weather<br><span class="hint">Clouds, rain and snow from open-meteo.com</span></span><input type="checkbox" name="weather" {{ 'checked' if weather }}></label>
+  </div>
 
   <h2>Brightness</h2>
-  <label>Panel brightness: <span id="bv">{{ brightness }}</span>%</label>
-  <input type="range" name="brightness" min="10" max="100" step="5" value="{{ brightness }}" oninput="bv.textContent=this.value">
-  <p class="hint">Lower it if the display flickers: that usually means the power supply can't keep up.</p>
-
-  <h2>GitHub access</h2>
-  <label>Token (only if the repository is private)</label>
-  <input type="password" name="github_token" placeholder="{{ 'saved – leave empty to keep' if has_token else 'not needed for a public repository' }}" autocomplete="off">
+  <div class="card">
+    <div class="row"><span style="flex:0 0 auto">☀︎</span><input type="range" name="brightness" min="10" max="100" step="5" value="{{ brightness }}" oninput="bv.textContent=this.value+'%'"><b id="bv" style="flex:0 0 3em;text-align:right">{{ brightness }}%</b></div>
+    <p class="hint">Lower it if the display flickers. Flicker usually means the power supply can't keep up.</p>
+  </div>
 
   <button class="btn" type="submit">Save &amp; apply</button>
 </form>
 
+<h2>Power</h2>
+<div class="card">
+  <div class="row">
+    <button class="btn grey" style="margin:0" onclick="power('reboot')">Restart</button>
+    <button class="btn danger" style="margin:0" onclick="power('poweroff')">Shut down</button>
+  </div>
+  <p class="hint" id="powermsg">Shut down before unplugging, so the SD card isn't damaged.</p>
+</div>
+
 <script>
+function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
 async function geo() {
   const res = document.getElementById('results');
-  const r = await fetch('/api/geocode?q=' + encodeURIComponent(document.getElementById('q').value));
-  const list = await r.json();
-  res.hidden = false; res.innerHTML = '';
+  res.hidden = false; res.innerHTML = '<div>Searching…</div>';
+  const list = await (await fetch('/api/geocode?q=' + encodeURIComponent(q.value))).json();
   if (list.error || !list.length) { res.innerHTML = `<div>${list.error ? 'Search failed' : 'Nothing found'}</div>`; return; }
+  res.innerHTML = '';
   for (const p of list) {
     const b = document.createElement('button'); b.type = 'button';
-    b.textContent = p.name;
+    b.innerHTML = esc(p.name) + ' <span class="hint">›</span>';
     b.onclick = () => { lat.value = p.lat.toFixed(4); lon.value = p.lon.toFixed(4); place.value = p.name;
                         placeshow.textContent = p.name; res.hidden = true; };
     res.appendChild(b);
   }
 }
 
+async function power(action) {
+  const text = action === 'reboot' ? 'Restart the Pi? The display is back in about a minute.'
+                                   : 'Shut down the Pi? To start it again, unplug and replug the power.';
+  if (!confirm(text)) return;
+  await fetch('/api/power/' + action, {method: 'POST'}).catch(() => {});
+  powermsg.textContent = action === 'reboot' ? 'Restarting… this page works again in about a minute.'
+    : 'Shutting down. Wait until the display is dark and the Pi\'s green light has stopped blinking (about 20 s), then unplug.';
+  if (action === 'reboot') setTimeout(() => location.href = '/system', 60000);
+}
+
 async function startUpdate() {
   const started = Date.now() / 1000 - 5;
-  document.getElementById('upbtn').disabled = true;
-  document.getElementById('progress').hidden = false;
+  upbtn.disabled = true;
+  progress.hidden = false;
   const r = await fetch('/api/update', {method: 'POST'});
   if (!r.ok) { upstate.textContent = (await r.json()).error; return; }
   const poll = async () => {

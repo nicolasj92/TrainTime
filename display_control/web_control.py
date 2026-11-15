@@ -155,7 +155,9 @@ def captive_portal():
 @app.route('/')
 def index():
     e = env()
+    shown = [p for p in library.load()['pictures'] if p.get('enabled', True)]
     return render_template('control.html', page='modes', current_mode=get_current_mode(),
+                           first_picture=shown[0]['id'] if shown else None,
                            service_status=get_service_status(), modes=DISPLAY_MODES,
                            panel=e.get('LED_PANEL') or '64x32',
                            notice=request.args.get('msg'), notice_error=request.args.get('err'))
@@ -241,6 +243,15 @@ def api_picture(pid):
         return jsonify({'error': 'no such picture'}), 404
     restart_if_showing('picture')
     return jsonify({'pictures': library.load()['pictures']})
+
+
+@app.route('/preview/<name>')
+def preview(name):
+    """Simulator previews of the modes, shown on the Modes page."""
+    path = HERE / 'previews' / name
+    if not re.fullmatch(r'[a-z]+_\d+x\d+\.png', name) or not path.is_file():
+        abort(404)
+    return send_file(path, max_age=86400)
 
 
 @app.route('/pictures/img/<pid>/<kind>')
@@ -354,15 +365,12 @@ def latest_release(force=False):
     """Newest GitHub release (cached for 30 minutes)."""
     if not force and time.time() - _latest['checked'] < 1800:
         return _latest
-    e = env()
-    headers = {'Accept': 'application/vnd.github+json'}
-    if e.get('GITHUB_TOKEN'):
-        headers['Authorization'] = f"Bearer {e['GITHUB_TOKEN']}"
-    repo = e.get('GITHUB_REPO') or 'nicolasj92/TrainTime'
+    repo = env().get('GITHUB_REPO') or 'nicolasj92/TrainTime'
     try:
-        r = requests.get(f'https://api.github.com/repos/{repo}/releases/latest', headers=headers, timeout=8)
+        r = requests.get(f'https://api.github.com/repos/{repo}/releases/latest',
+                         headers={'Accept': 'application/vnd.github+json'}, timeout=8)
         if r.status_code == 404:
-            raise RuntimeError('no release found (private repository without GITHUB_TOKEN?)')
+            raise RuntimeError(f'no release found for {repo}')
         r.raise_for_status()
         data = r.json()
         _latest.update(release={'tag': data['tag_name'], 'name': data.get('name') or data['tag_name'],
@@ -412,8 +420,6 @@ def system():
         values['SKY_PLACE'] = clean(request.form.get('place', ''))[:60]
         values['SKY_WEATHER'] = '1' if request.form.get('weather') else '0'
         values['LED_BRIGHTNESS'] = str(max(10, min(100, int(request.form.get('brightness') or 80))))
-        if request.form.get('github_token', '').strip():
-            values['GITHUB_TOKEN'] = clean(request.form['github_token'])
         update_env(values)
         restart_display()
         notice = 'Saved. The display restarted with the new settings.'
@@ -424,7 +430,6 @@ def system():
                            lat=e.get('SKY_LAT') or '49.87', lon=e.get('SKY_LON') or '8.65',
                            place=e.get('SKY_PLACE') or '', weather=e.get('SKY_WEATHER') != '0',
                            brightness=e.get('LED_BRIGHTNESS') or '100', hostname=socket.gethostname(),
-                           has_token=bool(e.get('GITHUB_TOKEN')),
                            reboot_required=Path('/run/pidisplay/reboot-required').exists())
 
 
@@ -437,10 +442,13 @@ def api_update():
     return jsonify({'started': True})
 
 
-@app.route('/api/reboot', methods=['POST'])
-def api_reboot():
-    subprocess.Popen(['sudo', '-n', 'systemctl', 'reboot'])
-    return jsonify({'rebooting': True})
+@app.route('/api/power/<action>', methods=['POST'])
+def api_power(action):
+    """Restart or shut down the Pi (the display goes dark when its service stops)."""
+    if action not in ('reboot', 'poweroff'):
+        abort(404)
+    subprocess.Popen(['sudo', '-n', 'systemctl', action])
+    return jsonify({action: True})
 
 
 @app.route('/api/update/status')

@@ -128,9 +128,10 @@ def render_sky(size, out_dir, gif=False):
             m.frame()
             d.swap()
         strip.append(to_image(cap.frames[-1]))
-    png = out_dir / f"sky_{size}.png"
+    png = out_dir / f"sky_day_{size}.png"
     sheet(strip).save(png)
     print(f"wrote {png.relative_to(HERE)}  (01:30, 07:25, 12:30, 16:50 on 15 Nov)")
+    strip[2].save(out_dir / f"sky_{size}.png")            # midday, for the web UI
 
     variants = []
     for label, hh, mm, weather in WEATHER_SAMPLES:

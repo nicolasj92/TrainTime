@@ -25,9 +25,7 @@ main() {
   fail() { status failed "$1"; exit 1; }
 
   GH_REPO="$(setting GITHUB_REPO)"; GH_REPO="${GH_REPO:-nicolasj92/TrainTime}"
-  TOKEN="$(setting GITHUB_TOKEN)"
   CURL=(curl -fsSL --retry 2 -H "Accept: application/vnd.github+json")
-  [[ -n "$TOKEN" ]] && CURL+=(-H "Authorization: Bearer $TOKEN")
 
   status running "Checking GitHub for the latest release"
   json="$("${CURL[@]}" "https://api.github.com/repos/$GH_REPO/releases/latest")" || fail "Couldn't reach GitHub"

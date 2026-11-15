@@ -1,28 +1,43 @@
 {% extends "base.html" %}
 {% block content %}
-        <h1>LED Display</h1>
-        <p class="subtitle">Pick what the panel shows ({{ panel }})</p>
+<style>
+  .modes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .mode { position: relative; display: block; background: var(--card); border-radius: 18px; padding: 10px 10px 14px;
+          box-shadow: var(--shadow); color: var(--text); border: 2px solid transparent; transition: transform .15s, border-color .2s; }
+  .mode:hover { transform: translateY(-2px); }
+  .mode.active { border-color: var(--accent); }
+  .mode .panel-img { image-rendering: auto; aspect-ratio: {{ panel.replace('x', ' / ') }}; object-fit: cover; }
+  .mode .placeholder { display: flex; align-items: center; justify-content: center; color: #666; font-size: 13px; }
+  .mode .name { font-weight: 600; margin: 10px 4px 0; }
+  .mode .desc { color: var(--muted); font-size: 14px; line-height: 1.35; margin: 2px 4px 0; }
+  .mode .on { position: absolute; top: 18px; right: 18px; background: var(--accent); color: #fff; font-size: 12px;
+              font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+  .mode.busy { opacity: .6; pointer-events: none; }
+  .state { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .dot.bad { background: var(--red); }
+</style>
 
-        <div class="status-card">
-            <div class="status-label">Service Status</div>
-            <div class="status-value {% if service_status == 'active' %}status-active{% elif service_status == 'inactive' %}status-inactive{% else %}status-unknown{% endif %}">
-                {{ service_status|upper }}
-            </div>
-        </div>
+<h1>LED Display</h1>
+<p class="subtitle">
+  <span class="state"><span class="dot {{ '' if service_status == 'active' else 'bad' }}"></span>
+  {% if service_status == 'active' %}Showing {{ modes[current_mode].name if current_mode in modes else 'nothing' }}{% else %}Display service {{ service_status }}{% endif %}</span>
+  · {{ panel }} panel
+</p>
 
-        <div class="modes-grid">
-            {% for mode_id, mode_info in modes.items() %}
-            <a href="/switch/{{ mode_id }}" class="mode-card {% if current_mode == mode_id %}active{% endif %}">
-                <div class="mode-name">
-                    {{ mode_info.name }}
-                    {% if current_mode == mode_id %}
-                    <span class="active-badge">ACTIVE</span>
-                    {% endif %}
-                </div>
-                <div class="mode-description">{{ mode_info.description }}</div>
-            </a>
-            {% endfor %}
-        </div>
-
-        <button class="refresh-btn" onclick="window.location.reload()">Refresh Status</button>
+<div class="modes">
+  {% for mode_id, mode_info in modes.items() %}
+  <a href="/switch/{{ mode_id }}" class="mode {{ 'active' if current_mode == mode_id }}" onclick="this.classList.add('busy')">
+    {% if mode_id == 'picture' %}
+      {% if first_picture %}<img class="panel-img" src="/pictures/img/{{ first_picture }}/thumb" alt="">
+      {% else %}<div class="panel-img placeholder">No pictures yet</div>{% endif %}
+    {% else %}
+      <img class="panel-img" src="/preview/{{ mode_id }}_{{ panel }}.png" alt="">
+    {% endif %}
+    {% if current_mode == mode_id %}<span class="on">On</span>{% endif %}
+    <div class="name">{{ mode_info.name }}</div>
+    <div class="desc">{{ mode_info.description }}</div>
+  </a>
+  {% endfor %}
+</div>
 {% endblock %}
