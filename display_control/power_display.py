@@ -2,17 +2,23 @@
 """
 Power Flow mode: live solar / grid / house power from Home Assistant.
 
-64 wide: clock, sun, house and grid icons with animated flow lines between them.
-32x32:   three rows (solar, house, grid) with values; grid is green when feeding in.
+64 wide: clock, then sun -> house -> grid side by side with their values. Glowing particles
+         run along the connections in the direction the power flows, faster the more flows.
+         The bar at the bottom shows how much of the house's power comes from the sun.
+32x32:   the same three as rows, connected by a vertical flow line.
+
+Colours: solar amber, house white, grid green when feeding in and orange when buying.
 """
 
+import math
 import os
 import threading
 import time
 
+import numpy as np
 import requests
 
-from utils import Display, IconGrid, IconHouse, IconSun, run
+from utils import Display, run
 
 HA_URL = os.getenv('HA_URL', 'http://homeassistant.local:8123').rstrip('/')
 HA_TOKEN = os.getenv('HA_TOKEN')
@@ -62,116 +68,173 @@ class PowerSource:
         return self
 
 
-def line_points(x0, y0, x1, y1):
-    dx, dy = abs(x1 - x0), -abs(y1 - y0)
-    sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
-    err = dx + dy
-    points = []
-    while True:
-        points.append((x0, y0))
-        if x0 == x1 and y0 == y1:
-            return points
-        e2 = 2 * err
-        if e2 >= dy:
-            err += dy
-            x0 += sx
-        if e2 <= dx:
-            err += dx
-            y0 += sy
+# --- Look -------------------------------------------------------------------------
+
+SOLAR = (255, 176, 40)
+HOUSE = (235, 235, 245)
+EXPORT = (60, 220, 110)
+IMPORT = (255, 110, 40)
+TEXT_DIM = (150, 150, 165)
+
+# 9x9 pixel art. Letters pick colours (see _icon_colors), "." is empty.
+ICONS = {
+    "sun": [
+        "....r....",
+        ".r.....r.",
+        "...ccc...",
+        "..ccccc..",
+        "r.ccccc.r",
+        "..ccccc..",
+        "...ccc...",
+        ".r.....r.",
+        "....r....",
+    ],
+    "house": [
+        "....R....",
+        "...RRR...",
+        "..RRRRR..",
+        ".RRRRRRR.",
+        "RRRRRRRRR",
+        ".WWWWWWW.",
+        ".WwwWWDW.",
+        ".WwwWWDW.",
+        ".WWWWWDW.",
+    ],
+    "grid": [            # lattice pylon with two cross-arms
+        "P...P...P",
+        "PPPPPPPPP",
+        "...PPP...",
+        "...P.P...",
+        ".PPPPPPP.",
+        "..PP.PP..",
+        "..P.P.P..",
+        ".PP...PP.",
+        ".P.....P.",
+    ],
+}
+
+
+def fmt(watts):
+    watts = abs(round(watts))
+    if watts >= 10000:
+        return f"{watts / 1000:.0f}kW"
+    if watts >= 1000:
+        return f"{watts / 1000:.1f}kW"
+    return f"{watts}W"
+
+
+def speed(watts):
+    """Pixels per second for a flow of `watts`: 6 at 50 W up to 18 at 3 kW, on a log scale."""
+    return 6 + 12 * max(0.0, min(1.0, math.log10(max(watts, 50) / 50) / math.log10(60)))
+
+
+class Flow:
+    """Particles moving along a path of pixels, like light pulses in a cable."""
+
+    SPACING = 5
+
+    def __init__(self, path):
+        self.path = path
+        self.offset = 0.0
+
+    def draw(self, img, color, watts, forward, dt, track=True):
+        n = len(self.path)
+        if track:   # faint line so the connection is visible even when nothing flows
+            for x, y in self.path:
+                img[y, x] = np.maximum(img[y, x], np.array(color) * 0.12)
+        if watts < 5:
+            return
+        self.offset = (self.offset + speed(watts) * dt) % self.SPACING
+        start = self.offset
+        while start < n:
+            for back, level in ((0, 1.0), (1, 0.45), (2, 0.18)):      # head and fading tail
+                pos = start - back
+                i0 = math.floor(pos)
+                frac = pos - i0
+                for i, w in ((i0, 1 - frac), (i0 + 1, frac)):        # split between pixels: smooth
+                    if 0 <= i < n:
+                        x, y = self.path[i if forward else n - 1 - i]
+                        img[y, x] = np.minimum(255, img[y, x] + np.array(color) * level * w)
+            start += self.SPACING
 
 
 class PowerFlow:
-    fps = 25
-    base_color = (60, 100, 160)
-    flow_color = (110, 170, 255)
+    fps = 30
 
     def __init__(self, display: Display, source=None):
         self.d = display
         self.source = source or PowerSource().start()
-        self.flow_tick = 0
-        self.flow_phase = 0
+        self.t = 0.0
+        W, H = display.width, display.height
+        self.W, self.H = W, H
+        if display.wide:
+            y = 13
+            self.pos = {"sun": (4, 9), "house": (28, 9), "grid": (52, 9)}
+            self.solar_flow = Flow([(x, y) for x in range(14, 27)])
+            self.grid_flow = Flow([(x, y) for x in range(38, 51)])
+        else:
+            self.pos = {"sun": (0, 0), "house": (0, 11), "grid": (0, 22)}
+            self.solar_flow = Flow([(10, y) for y in range(4, 16)])
+            self.grid_flow = Flow([(10, y) for y in range(15, 27)])
 
     def frame(self):
         s = self.source
         if s.error and not (s.solar or s.grid):
             self.d.error(s.error)
             return
-        self.d.clear()
-        if self.d.wide:
-            self._draw_wide(s.solar, s.home, s.grid)
-        else:
-            self._draw_compact(s.solar, s.home, s.grid)
-        self.flow_tick = (self.flow_tick + 1) % 1000
-        if self.flow_tick % 3 == 0:
-            self.flow_phase = (self.flow_phase + 1) % 6
-
-    # --- layouts ---
-
-    def _draw_flow(self, start, end, tip_direction):
-        d = self.d
-        points = line_points(*start, *end)
-        for px, py in points:
-            d.set_pixel(px, py, *self.base_color)
-        for offset in range(0, len(points), 6):
-            px, py = points[(offset + self.flow_phase) % len(points)]
-            d.set_pixel(px, py, *self.flow_color)
-        x, y = end
-        tip = {
-            "down": [(x, y), (x - 1, y - 1), (x + 1, y - 1)],
-            "left": [(x, y), (x + 1, y - 1), (x + 1, y + 1)],
-            "right": [(x, y), (x - 1, y - 1), (x - 1, y + 1)],
-        }[tip_direction]
-        for px, py in tip:
-            d.set_pixel(px, py, *self.base_color)
-
-    def _draw_wide(self, solar, home, grid):
-        d = self.d
-        font = d.font_large
-        grid_x, grid_y = 12, 18
-        home_x, home_y = 52, 18
-
-        d.text(font, 0, 6, d.white, d.time_str())
-
-        solar_text = f"{solar}W"
-        solar_text_x = d.width - len(solar_text) * 6
-        IconSun(d, solar_text_x - 12, 0).draw()
-        d.text(font, solar_text_x, 6, d.white, solar_text)
-
-        IconHouse(d, home_x + 2, 14).draw()
-        IconGrid(d, grid_x - 8, 14).draw()
-
-        home_text = f"{home}W"
-        d.text(font, d.width - len(home_text) * 6, home_y + 12, d.white, home_text)
-        d.text(font, grid_x - 8, grid_y + 12, d.white, f"{abs(grid)}W")
-
-        solar_anchor = (solar_text_x - 8, 4)
-        home_anchor = (home_x + 6, 18)
-        grid_anchor = (grid_x - 4, 18)
-        if min(solar, home) > 0:
-            self._draw_flow(solar_anchor, home_anchor, "down")
-        if max(0, solar - home) > 0:
-            self._draw_flow(solar_anchor, grid_anchor, "left")
-        if max(0, home - solar) > 0:
-            self._draw_flow(grid_anchor, home_anchor, "right")
-
-    def _draw_compact(self, solar, home, grid):
-        d = self.d
-        font = d.font_small
+        dt = 1 / self.fps
+        self.t += dt
+        solar, grid = max(0, s.solar), s.grid
+        home = max(0, solar + grid)
         exporting = grid < 0
-        rows = [
-            (IconSun, solar, (255, 200, 80)),
-            (IconHouse, home, (255, 255, 255)),
-            (IconGrid, abs(grid), (90, 220, 120) if exporting else (255, 150, 60)),
-        ]
-        for i, (icon, value, color) in enumerate(rows):
-            y = i * 11
-            icon(d, 0, y).draw()
-            text = f"{value}W" if value < 10000 else f"{value // 1000}kW"
-            d.text(font, d.width - d.text_width(font, text), y + 7, color, text)
-        # Animated dot in the gap between house and grid icons shows the direction
-        if grid:
-            step = self.flow_phase % 3
-            d.set_pixel(3, 19 + step if exporting else 21 - step, *self.flow_color)
+        grid_color = EXPORT if exporting else IMPORT
+
+        img = np.zeros((self.H, self.W, 3), dtype=np.float32)
+        self._icon(img, "sun", solar)
+        self._icon(img, "house", home)
+        self._icon(img, "grid", abs(grid), grid_color)
+        self.solar_flow.draw(img, SOLAR, solar, True, dt)
+        self.grid_flow.draw(img, grid_color, abs(grid), exporting, dt)
+        if not self.d.wide:            # stubs from the icons to the vertical line
+            for y in (4, 15, 26):
+                img[y, 9] = np.maximum(img[y, 9], (40, 40, 48))
+        elif home > 0:                 # solar share of the house's consumption
+            share = min(solar, home) / home
+            split = round(share * self.W)
+            img[31, :split] = np.array(SOLAR) * 0.55
+            img[31, split:] = np.array(IMPORT) * 0.35
+        self.d.image(np.clip(img, 0, 255).astype(np.uint8))
+
+        d = self.d
+        values = [("sun", solar, SOLAR), ("house", home, HOUSE), ("grid", grid, grid_color)]
+        if d.wide:
+            d.text(d.font_large, (self.W - d.text_width(d.font_large, d.time_str()) + 1) // 2, 6, TEXT_DIM, d.time_str())
+            for name, watts, color in values:
+                text = fmt(watts)
+                cx = self.pos[name][0] + 4
+                x = max(0, min(self.W - d.text_width(d.font_small, text), cx - d.text_width(d.font_small, text) // 2 + 1))
+                d.text(d.font_small, x, 27, color, text)
+        else:
+            for (name, watts, color), baseline in zip(values, (7, 18, 29)):
+                text = fmt(watts)
+                d.text(d.font_small, self.W - d.text_width(d.font_small, text), baseline, color, text)
+
+    def _icon(self, img, name, watts, accent=None):
+        x0, y0 = self.pos[name]
+        active = watts >= 5
+        glow = 0.55 + 0.45 * math.sin(self.t * 2.2)              # slow pulse of the sun's rays
+        colors = {
+            "sun": {"c": SOLAR if active else (70, 70, 90),
+                    "r": tuple(c * (0.35 + 0.65 * glow) for c in SOLAR) if active else (30, 30, 40)},
+            "house": {"R": (110, 120, 150), "W": (200, 200, 210), "w": (255, 200, 90) if active else (60, 60, 70),
+                      "D": (70, 60, 55)},
+            "grid": {"P": tuple(0.4 * c + 0.6 * g for c, g in zip(accent or (150, 160, 175), (150, 160, 175)))
+                     if active else (90, 95, 110)},
+        }[name]
+        for dy, row in enumerate(ICONS[name]):
+            for dx, ch in enumerate(row):
+                if ch in colors and 0 <= y0 + dy < self.H and 0 <= x0 + dx < self.W:
+                    img[y0 + dy, x0 + dx] = colors[ch]
 
 
 if __name__ == "__main__":

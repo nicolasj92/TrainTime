@@ -173,7 +173,7 @@ def render(mode, size, out_dir, frames_for_gif=0):
     elif mode == "power":
         from power_display import PowerFlow
         m = PowerFlow(d, source=sample_power(solar=820, grid=-240))
-        warmup = 3
+        warmup = 37
     elif mode == "departures":
         from departures_display import Departures
         m = Departures(d, source=sample_departures())
@@ -210,7 +210,7 @@ def main():
     modes = ["christmas", "power", "departures", "sky", "wifi"] if args.mode == "all" else [args.mode]
     for size in sizes:
         for mode in modes:
-            render(mode, size, out_dir, frames_for_gif=80 if (args.gif and mode in ("christmas", "sky")) else 0)
+            render(mode, size, out_dir, frames_for_gif=80 if (args.gif and mode in ("christmas", "sky", "power")) else 0)
 
 
 if __name__ == "__main__":
