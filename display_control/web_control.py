@@ -177,6 +177,7 @@ def index():
                            first_picture=shown[0]['id'] if shown else None, version=current_version(),
                            palettes=palettes, custom=['#%02x%02x%02x' % c for c in custom],
                            colors_minutes=e.get('COLORS_MINUTES') or '3', fire_bedtime=e.get('FIRE_BEDTIME') or '',
+                           fire_quality=e.get('FIRE_QUALITY') or 'auto',
                            service_status=get_service_status(), modes=DISPLAY_MODES,
                            panel=e.get('LED_PANEL') or '64x32',
                            notice=request.args.get('msg'), notice_error=request.args.get('err'))
@@ -192,6 +193,7 @@ def mode_settings():
     minutes = max(0.5, min(120, float(f.get('minutes') or 3)))
     update_env({'COLORS_PALETTES': ','.join(names), 'COLORS_CUSTOM': custom,
                 'COLORS_MINUTES': f'{minutes:g}',
+                'FIRE_QUALITY': f.get('fire_quality') if f.get('fire_quality') in ('auto', 'smooth', 'light') else 'auto',
                 'FIRE_BEDTIME': bedtime if re.fullmatch(r'\d{2}:\d{2}', bedtime) else ''})
     if get_current_mode() in ('colors', 'fire'):
         restart_display()

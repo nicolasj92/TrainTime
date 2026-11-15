@@ -24,7 +24,7 @@ modes, and you switch between them from a small web page on the Pi.
 | Sky Clock | `sky_display.py` | The real sky over your location with a white clock: colours follow the sun (night, dawn, day, dusk), sun and moon (with its current phase) move to their real positions, stars and the odd shooting star, houses lit at night. The current weather from [Open-Meteo](https://open-meteo.com) (free, no key): as many clouds as outside, grey skies, rain, snow, fog, lightning. Without internet it shows fair weather |
 | Pictures | `picture_display.py` | Slideshow of your photos, managed on the web UI's Pictures page: upload, choose the part to show (per panel size), tick which to show, order. Slides in from the right (or crossfades); interval adjustable. Photos stay on the Pi (`display_control/pictures/`, gitignored) |
 | Weather | `weather_display.py` | Current temperature and weather icon, today's high/low, and a 24-hour temperature curve (coloured cold blue to warm orange, night hours shaded) with the rain chance as a blue band. Open-Meteo, no key; location from the System page |
-| Fireplace | `fire_display.py` | A crackling fire in a brick fireplace with glowing logs and sparks. Set `FIRE_BEDTIME` to let it burn down to embers at night |
+| Fireplace | `fire_display.py` | A calm full-screen fire: flame tongues that sway slowly over glowing logs, with the odd spark. Optional bedtime (burns down to embers) and a light quality for the Pi 3 |
 | Ambient Colors | `colors_display.py` | Soft colour gradients flowing slowly across the panel; the palette (aurora, sunset, ocean, lavender, forest) changes every few minutes |
 | Departures | `departures_display.py` | Next buses/trams/trains from an RMV stop (default: Darmstadt Luisenplatz towards Hbf and Lichtwiese), real-time minutes; yellow = late, red X = cancelled |
 
@@ -158,6 +158,7 @@ Everything goes in `display_control/.env`, which is gitignored. The template is
 | `SKY_LAT` / `SKY_LON` / `SKY_PLACE` | Sky Clock, Weather | Location for sun, moon and weather (default Darmstadt); set on the System page |
 | `SKY_WEATHER` | Sky Clock | `1` = live weather from open-meteo.com, `0` = always fair weather |
 | `FIRE_BEDTIME` | Fireplace | `HH:MM`: burn down to embers until 6:00; empty = always burning |
+| `FIRE_QUALITY` | Fireplace | `auto` (default: `light` on a Pi 3 or older), `smooth` (15 fps) or `light` (10 fps, fewer flames, less CPU) |
 | `COLORS_MINUTES` | Ambient Colors | Minutes per palette (default 3) |
 | `PICTURE_SECONDS` / `PICTURE_TRANSITION` | Pictures | Seconds per picture; `slide`, `fade` or `cut` |
 | `HA_URL` | Power Flow | e.g. `http://homeassistant.local:8123` |

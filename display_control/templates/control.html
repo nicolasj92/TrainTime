@@ -62,6 +62,11 @@
     <div class="status-label">Fireplace</div>
     <label>Burn down to embers at (until 6:00), empty = always burning</label>
     <input type="time" name="bedtime" value="{{ fire_bedtime }}">
+    <label>Quality</label>
+    <select name="fire_quality">
+      {% for k, v in [('auto', 'Automatic (Light on a Pi 3)'), ('smooth', 'Smooth – 15 fps, more flames'), ('light', 'Light – 10 fps, half the CPU')] %}
+      <option value="{{ k }}" {{ 'selected' if k == fire_quality }}>{{ v }}</option>{% endfor %}
+    </select>
   </div>
   <button class="btn" type="submit">Save</button>
 </form>
