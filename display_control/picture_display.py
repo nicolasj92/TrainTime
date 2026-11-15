@@ -1,87 +1,108 @@
 #!/usr/bin/env python3
 """
-Picture mode: shows the images in display_control/pictures/ (slideshow with crossfade).
+Pictures mode: a slideshow of the pictures ticked on the web UI's Pictures page.
 
-- Files named like "dog_64x32.png" / "dog_32x32.png" are used as-is on the matching panel
-  (prepare them cropped to exactly the panel size; that looks best).
-- Other images (jpg/png) are centre-cropped to the panel and their shadows lifted a little,
-  since LED panels show dark tones as almost off.
-
-The pictures folder is gitignored (private photos). PICTURE_SECONDS sets the slideshow interval.
+PICTURE_SECONDS sets how long each picture stays, PICTURE_TRANSITION how the next one
+comes in (slide, fade or cut). See pictures.py for how the library is stored.
 """
 
 import os
-import re
-from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageEnhance, ImageOps
 
+import pictures as library
 from utils import Display, panel_config, run
 
-PICTURE_DIR = Path(__file__).resolve().parent / "pictures"
-SECONDS = float(os.getenv("PICTURE_SECONDS") or 20)
-SIZED = re.compile(r"_(\d+)x(\d+)\.\w+$")
+SECONDS = max(1.0, float(os.getenv("PICTURE_SECONDS") or 20))
+TRANSITION = os.getenv("PICTURE_TRANSITION") or "slide"
+TRANSITION_SECONDS = 0.9
 
 
-def prepare(path, width, height):
-    img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
-    if img.size == (width, height):
-        return np.asarray(img)
-    img = ImageOps.fit(img, (width, height), Image.LANCZOS)
-    a = (np.asarray(img).astype(np.float32) / 255) ** 0.75          # lift shadows
-    img = Image.fromarray((a * 255).astype(np.uint8))
-    img = ImageEnhance.Color(ImageEnhance.Contrast(img).enhance(1.15)).enhance(1.3)
-    return np.asarray(img)
+def panel_size():
+    cfg = panel_config()
+    return cfg["cols"] * cfg["chain"], cfg["rows"] * cfg["parallel"] - cfg["y_offset"]
 
 
 def load_pictures():
     """Load before the LED library drops root privileges (it can't read /home/pi afterwards)."""
-    cfg = panel_config()
-    width, height = cfg["cols"] * cfg["chain"], cfg["rows"] * cfg["parallel"] - cfg["y_offset"]
-    files = sorted(p for p in PICTURE_DIR.glob("*") if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif"))
-    chosen = []
-    for p in files:
-        m = SIZED.search(p.name)
-        if m and (int(m.group(1)), int(m.group(2))) != (width, height):
-            continue  # made for the other panel size
-        try:
-            chosen.append(prepare(p, width, height))
-        except Exception as e:
-            print(f"Skipping {p.name}: {e}", flush=True)
-    print(f"Loaded {len(chosen)} picture(s) for {width}x{height}", flush=True)
-    return chosen
+    width, height = panel_size()
+    frames = []
+    for entry in library.load()["pictures"]:
+        if entry.get("enabled", True):
+            try:
+                frames.append(library.render(entry, width, height).astype(np.float32))
+            except Exception as e:
+                print(f"Skipping {entry.get('name')}: {e!r}", flush=True)
+    print(f"Loaded {len(frames)} picture(s) for {width}x{height}, {SECONDS:g}s each, {TRANSITION}", flush=True)
+    return frames
 
 
 PICTURES = load_pictures()
 
 
-class Picture:
-    fps = 10
-    fade_frames = 10
+def ease(t):
+    """Smooth start and stop (cubic ease-in-out)."""
+    return 4 * t ** 3 if t < 0.5 else 1 - (-2 * t + 2) ** 3 / 2
 
-    def __init__(self, display: Display, pictures=None):
+
+def slide(current, nxt, t):
+    """Next picture pushes the current one out to the left; sub-pixel steps keep it smooth."""
+    width = current.shape[1]
+    strip = np.concatenate([current, nxt], axis=1)
+    shift = ease(t) * width
+    whole, frac = int(shift), shift - int(shift)
+    a = strip[:, whole:whole + width]
+    b = strip[:, min(whole + 1, width):min(whole + 1, width) + width]
+    return a * (1 - frac) + b * frac
+
+
+class Picture:
+    fps = 4                        # still pictures need few frames; transitions run at 40 fps
+
+    def __init__(self, display: Display, pictures=None, transition=TRANSITION, seconds=SECONDS):
         self.d = display
         self.pictures = PICTURES if pictures is None else pictures
-        self.frame_no = 0
+        self.transition = transition if transition in library.TRANSITIONS else "slide"
+        self.seconds = seconds
+        self.index = 0
+        self.shown = 0.0           # seconds the current picture has been on
+        self.progress = None       # 0..1 while a transition runs
 
     def frame(self):
         d = self.d
         if not self.pictures:
             d.clear()
-            d.text(d.font_small, 0, 12, (200, 200, 200), "No pictures")
-            d.text(d.font_small, 0, 20, (120, 120, 120), "display_control/")
-            d.text(d.font_small, 0, 27, (120, 120, 120), "pictures/")
+            d.text(d.font_small, 0, 10, (200, 200, 200), "No pictures")
+            d.text(d.font_small, 0, 18, (120, 120, 120), "Add some on")
+            d.text(d.font_small, 0, 25, (120, 120, 120), "the web page")
             return
-        per_picture = max(1, int(SECONDS * self.fps))
-        index, pos = divmod(self.frame_no, per_picture)
-        current = self.pictures[index % len(self.pictures)]
-        if len(self.pictures) > 1 and pos >= per_picture - self.fade_frames:
-            nxt = self.pictures[(index + 1) % len(self.pictures)]
-            t = (pos - (per_picture - self.fade_frames) + 1) / self.fade_frames
-            current = (current * (1 - t) + nxt * t).astype(np.uint8)
-        d.image(current)
-        self.frame_no += 1
+        current = self.pictures[self.index % len(self.pictures)]
+        if len(self.pictures) == 1:
+            d.image(current.astype(np.uint8))
+            return
+        if self.progress is None:
+            d.image(current.astype(np.uint8))
+            self.shown += 1 / self.fps
+            if self.shown >= self.seconds:
+                if self.transition == "cut":
+                    self._advance()
+                else:
+                    self.progress, self.fps = 0.0, 40
+            return
+        nxt = self.pictures[(self.index + 1) % len(self.pictures)]
+        self.progress = min(1.0, self.progress + 1 / (TRANSITION_SECONDS * self.fps))
+        if self.transition == "fade":
+            t = ease(self.progress)
+            frame = current * (1 - t) + nxt * t
+        else:
+            frame = slide(current, nxt, self.progress)
+        d.image(np.clip(frame + 0.5, 0, 255).astype(np.uint8))
+        if self.progress >= 1.0:
+            self._advance()
+
+    def _advance(self):
+        self.index = (self.index + 1) % len(self.pictures)
+        self.shown, self.progress, self.fps = 0.0, None, 4
 
 
 if __name__ == "__main__":

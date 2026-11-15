@@ -4,23 +4,32 @@ Sky clock: the real sky over SKY_LAT/SKY_LON, with the clock on top.
 
 - sky colours follow the sun's altitude (night, dawn/dusk pink and orange, day blue)
 - the sun and moon move across the sky to their real positions; the moon shows its phase
-- stars twinkle at night, with the odd shooting star; clouds drift by during the day
-- hills with houses whose windows light up after dark
+- stars twinkle at night, with the odd shooting star
+- a hint of the current weather from Open-Meteo (free, no key): more and greyer clouds when
+  it's cloudy, light rain or snow, fog and lightning. The sky itself stays blue.
+  Without internet: a few fair clouds.
+- hills with houses and trees; the windows light up after dark
 
-Everything is calculated locally (no internet needed). Works on 64x32 and 32x32.
+Sun and moon are calculated locally. Works on 64x32 and 32x32.
+Settings: SKY_LAT / SKY_LON, SKY_WEATHER=0 to turn weather off.
 """
 
 import math
 import os
 import random
+import threading
+import time
 from datetime import datetime
 
 import numpy as np
+import requests
+from PIL import Image
 
 from utils import Display, run
 
 LAT = float(os.getenv("SKY_LAT") or 49.87)   # default: Darmstadt
 LON = float(os.getenv("SKY_LON") or 8.65)
+WEATHER_ON = (os.getenv("SKY_WEATHER") or "1") != "0"
 
 
 # --- Astronomy: port of suncalc.js (Vladimir Agafonkin, BSD-2-Clause) ----------------
@@ -129,23 +138,88 @@ def clamp(v, lo=0.0, hi=1.0):
     return max(lo, min(hi, v))
 
 
+# --- Weather -----------------------------------------------------------------------
+
+FAIR = {"clouds": 0.25, "rain": 0.0, "snow": 0.0, "fog": False, "thunder": False, "wind": 10.0}
+
+
+def weather_from_open_meteo(current):
+    """Turn Open-Meteo 'current' values into what the sky draws."""
+    code = int(current.get("weather_code") or 0)
+    precipitation = float(current.get("precipitation") or 0)
+    snowing = code in (71, 73, 75, 77, 85, 86) or float(current.get("snowfall") or 0) > 0
+    raining = code in (51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99)
+    # Drizzle codes often come with 0.0 mm, so give every rain/snow code a minimum intensity
+    intensity = max(precipitation, {51: .2, 53: .4, 55: .7, 61: .5, 63: 1.5, 65: 4, 80: .8,
+                                    81: 2, 82: 5, 71: .3, 73: .8, 75: 2, 85: .5, 86: 1.5}.get(code, .5))
+    return {
+        "clouds": clamp(float(current.get("cloud_cover") or 0) / 100),
+        "rain": intensity if raining and not snowing else 0.0,
+        "snow": intensity if snowing else 0.0,
+        "fog": code in (45, 48),
+        "thunder": code in (95, 96, 99),
+        "wind": float(current.get("wind_speed_10m") or 10),
+    }
+
+
+class Weather:
+    """Polls Open-Meteo every 15 minutes in the background. .now is always usable."""
+
+    URL = "https://api.open-meteo.com/v1/forecast"
+
+    def __init__(self):
+        self.now = dict(FAIR)
+        if WEATHER_ON:
+            threading.Thread(target=self._loop, daemon=True).start()
+
+    def _loop(self):
+        while True:
+            try:
+                r = requests.get(self.URL, timeout=15, params={
+                    "latitude": LAT, "longitude": LON,
+                    "current": "cloud_cover,precipitation,snowfall,weather_code,wind_speed_10m"})
+                self.now = weather_from_open_meteo(r.json()["current"])
+                print(f"Weather: {self.now}", flush=True)
+                time.sleep(900)
+            except Exception as e:
+                print(f"Weather unavailable ({e!r}), retrying in 2 min", flush=True)
+                time.sleep(120)
+
+
+def cloud_texture(width, height, seed=3):
+    """Soft noise that wraps around horizontally, for clouds drifting across forever."""
+    rng = np.random.default_rng(seed)
+    total = np.zeros((height, width), dtype=np.float32)
+    for cell_x, cell_y, weight in ((24, 10, 1.0), (12, 5, 0.5), (6, 3, 0.25)):
+        gw, gh = max(2, width // cell_x), max(2, height // cell_y + 2)
+        grid = rng.random((gh, gw)).astype(np.float32)
+        tiled = np.tile(grid, (1, 3))
+        big = Image.fromarray(tiled).resize((width * 3, height + 2 * cell_y), Image.BICUBIC)
+        total += weight * np.asarray(big)[cell_y:cell_y + height, width:2 * width]
+    total -= total.min()
+    return total / total.max()
+
+
 # --- Mode --------------------------------------------------------------------------
 
 class Sky:
     fps = 10
 
-    def __init__(self, display: Display, now=None):
+    def __init__(self, display: Display, now=None, weather=None):
         self.d = display
         self.now = now or (lambda: datetime.now().astimezone())
+        self.weather = weather or Weather()
         W, H = display.width, display.height
         self.W, self.H = W, H
         self.wide = display.wide
         rng = random.Random(7)
 
-        # Rolling hills: ground height per column
-        self.ground = [int(round(3 + 1.3 * math.sin(x * 0.21) + 0.9 * math.sin(x * 0.07 + 1.3))) for x in range(W)]
+        # Gentle hills: ground height per column
+        self.ground = [int(round(3 + 1.1 * math.sin(x * 0.19) + 0.8 * math.sin(x * 0.07 + 1.3))) for x in range(W)]
         self.horizon = H - 4                      # altitude 0 maps here
-        self.houses = [10, 46] if self.wide else [22]
+        # (x, width, wall height) of each house, and x of each tree
+        self.houses = [(8, 6, 3), (15, 4, 4), (47, 5, 3)] if self.wide else [(18, 6, 3)]
+        self.trees = [5, 22, 41, 56] if self.wide else [6, 27]
 
         # Stars in the sky above the hills (not behind the clock)
         self.stars = []
@@ -154,12 +228,16 @@ class Sky:
             if y > 8 or not (W // 2 - 15 <= x <= W // 2 + 15):
                 self.stars.append((x, y, rng.uniform(0.5, 1.0), rng.uniform(0, 6.3), rng.uniform(0.6, 1.8)))
 
-        self.clouds = [{"x": rng.uniform(0, W), "y": rng.randint(9, 14), "w": rng.randint(7, 11)}
-                       for _ in range(2 if self.wide else 1)]
+        self.texture_w = W * 4
+        self.texture = cloud_texture(self.texture_w, H)
+        self.cloud_x = 0.0
+        self._threshold_for = None
+        self.drops = []
+        self.flash = 0
         self.meteor = None
         self.rng = rng
         self.frame_no = 0
-        self.window_flicker = [1.0] * 4
+        self.window_flicker = [1.0] * len(self.houses)
         self._astro_time = None
 
     # --- positions ---
@@ -182,14 +260,18 @@ class Sky:
     def frame(self):
         now = self.now()
         self._update_astro(now)
+        w = self.weather.now
         W, H = self.W, self.H
         alt = self.sun_alt
         daylight = clamp((alt + 6) / 12)          # 0 at night, 1 in daytime
         night = clamp((-alt - 4) / 10)            # stars fade in below -4 deg
         t = self.frame_no / self.fps
+        # How grey it is outside (0..1). Only used as a hint: the sky stays blue.
+        overcast = clamp(clamp((w["clouds"] - 0.55) / 0.4) + (0.3 if w["rain"] or w["snow"] else 0))
 
-        # Sky gradient
+        # Sky gradient, greyer and darker under heavy cloud
         top, hor = sky_colors(alt)
+        top, hor = self._overcast(top, overcast * 0.2), self._overcast(hor, overcast * 0.2)
         rows = np.linspace(0, 1, self.horizon + 1) ** 1.6
         img = np.zeros((H, W, 3), dtype=np.float32)
         for y in range(H):
@@ -201,7 +283,7 @@ class Sky:
             yy, xx = np.mgrid[0:H, 0:W]
             radius = 14 if self.wide else 9
             dist = np.sqrt((xx - sx) ** 2 + ((yy - sy) * 1.3) ** 2)
-            strength = np.clip(1 - dist / radius, 0, 1) ** 2 * clamp((alt + 8) / 8) * 0.6
+            strength = np.clip(1 - dist / radius, 0, 1) ** 2 * clamp((alt + 8) / 8) * 0.6 * (1 - 0.4 * overcast)
             img += strength[..., None] * np.array([255, 150, 60], dtype=np.float32) * (1 - 0.5 * daylight)
 
         # Stars
@@ -209,7 +291,8 @@ class Sky:
             for x, y, base, phase, speed in self.stars:
                 b = 255 * night * base * (0.65 + 0.35 * math.sin(t * speed + phase))
                 img[y, x] = np.maximum(img[y, x], (b, b, b * 0.95))
-            self._draw_meteor(img, night)
+            if w["clouds"] < 0.5:
+                self._draw_meteor(img, night)
 
         # Moon (visible by day too, just fainter)
         if self.moon_alt > -1:
@@ -225,23 +308,37 @@ class Sky:
                     if dx * dx + dy * dy <= r * r + 0.5:
                         self._put(img, round(sx) + dx, round(sy) + dy, color)
 
-        self._draw_clouds(img, daylight, hor)
-        self._draw_ground(img, daylight)
+        self._draw_clouds(img, w, daylight, hor, overcast)
+        if w["fog"]:
+            img = img * 0.45 + np.array(_mix((18, 18, 24), (150, 150, 155), daylight), dtype=np.float32) * 0.55
+        self._draw_precipitation(img, w, daylight)
+        self._draw_ground(img, daylight, overcast)
+        self._lightning(img, w)
 
         self.d.image(np.clip(img, 0, 255).astype(np.uint8))
-
-        # Clock: dark on a bright sky, soft white at night
-        brightness = 0.3 * top[0] + 0.6 * top[1] + 0.1 * top[2]
-        color = (10, 14, 40) if brightness > 60 else (190, 190, 210)
-        time_str = now.strftime("%H:%M")
-        width = self.d.text_width(self.d.font_large, time_str)
-        self.d.text(self.d.font_large, (W - width + 1) // 2, 6, color, time_str)
-
+        self._draw_clock(now, top, daylight)
         self.frame_no += 1
+
+    @staticmethod
+    def _overcast(color, amount):
+        grey = (0.3 * color[0] + 0.55 * color[1] + 0.15 * color[2]) * 0.55   # dull and darker
+        return _mix(color, (grey, grey * 1.02, grey * 1.1), amount * 0.9)
 
     def _put(self, img, x, y, color, alpha=1.0):
         if 0 <= x < self.W and 0 <= y < self.H:
             img[y, x] = img[y, x] * (1 - alpha) + np.array(color, dtype=np.float32) * alpha
+
+    def _draw_clock(self, now, top, daylight):
+        """White HH:MM, slightly dimmer at night; a soft dark outline keeps it readable on a bright sky."""
+        d = self.d
+        time_str = now.strftime("%H:%M")
+        x = (self.W - d.text_width(d.font_large, time_str) + 1) // 2
+        if daylight > 0.05:
+            outline = tuple(int(c * 0.35) for c in top)
+            for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                d.text(d.font_large, x + dx, 6 + dy, outline, time_str)
+        level = 0.72 + 0.28 * daylight
+        d.text(d.font_large, x, 6, (int(255 * level), int(255 * level), int(250 * level)), time_str)
 
     def _draw_moon(self, img, cx, cy, brightness):
         r = 3 if self.wide else 2
@@ -277,41 +374,87 @@ class Sky:
             if m["life"] <= 0:
                 self.meteor = None
 
-    def _draw_clouds(self, img, daylight, horizon_color):
-        color = _mix((28, 28, 40), _mix((235, 235, 245), horizon_color, 0.25), daylight)
-        alpha = 0.12 + 0.73 * daylight
-        for c in self.clouds:
-            c["x"] = (c["x"] + 0.025) % (self.W + c["w"] * 2)
-            x0 = c["x"] - c["w"]
-            for dx in range(c["w"]):
-                bump = 1.6 if c["w"] * 0.25 < dx < c["w"] * 0.65 else 1.0
-                half = (1 - ((dx - c["w"] / 2) / (c["w"] / 2)) ** 2) * bump * 1.6
-                for dy in range(-2, 2):
-                    if -half <= dy <= half * 0.6:
-                        self._put(img, round(x0 + dx), c["y"] + dy, color, alpha)
+    def _draw_clouds(self, img, w, daylight, horizon_color, overcast):
+        if w["clouds"] <= 0.02:
+            return
+        cover = 0.08 + 0.32 * w["clouds"]            # at most ~40 % of the sky, so the blue stays
+        if self._threshold_for != cover:          # threshold so that `cover` of the sky is cloud
+            self.threshold = float(np.quantile(self.texture, 1 - cover))
+            self._threshold_for = cover
+        self.cloud_x = (self.cloud_x + 0.015 + w["wind"] / 900) % self.texture_w
+        x0 = int(self.cloud_x)
+        cols = (np.arange(self.W) + x0) % self.texture_w
+        frac = self.cloud_x - x0
+        n = self.texture[:, cols] * (1 - frac) + self.texture[:, (cols + 1) % self.texture_w] * frac
+        density = np.clip((n - self.threshold + 0.04) / 0.14, 0, 1)
+        # Light, white clouds when fair; grey, heavy ones when it's overcast or raining
+        bright = _mix((245, 245, 250), (150, 154, 165), overcast)
+        bright = _mix(bright, horizon_color, 0.2 * (1 - daylight) + 0.15)
+        color = np.array(_mix((26, 27, 36), bright, daylight), dtype=np.float32)
+        shade = 0.82 + 0.18 * np.clip((n - self.threshold) / 0.25, 0, 1)   # thicker = brighter tops
+        alpha = (density * (0.55 + 0.4 * daylight))[..., None]
+        img[:] = img * (1 - alpha) + (color * shade[..., None]) * alpha
 
-    def _draw_ground(self, img, daylight):
+    def _draw_precipitation(self, img, w, daylight):
+        snow, rain = w["snow"], w["rain"]
+        # A light sprinkle, a bit more when it pours
+        target = int(self.W * 0.3 * min(1.0, 0.4 + max(rain, snow) / 4)) if (rain or snow) else 0
+        while len(self.drops) < target:
+            self.drops.append([self.rng.uniform(0, self.W), self.rng.uniform(-self.H, 0), self.rng.uniform(0, 6.3)])
+        del self.drops[target:]
+        if snow:
+            color = _mix((70, 70, 80), (235, 235, 245), daylight)
+        else:
+            color = _mix((70, 85, 120), (175, 200, 245), daylight)
+        for drop in self.drops:
+            if snow:
+                drop[1] += 0.25
+                drop[0] += 0.15 * math.sin(self.frame_no / 8 + drop[2])
+                self._put(img, round(drop[0]) % self.W, round(drop[1]), color, 0.9)
+            else:
+                drop[1] += 1.6
+                drop[0] += 0.25
+                for i in range(3):
+                    self._put(img, round(drop[0] - 0.15 * i) % self.W, round(drop[1]) - i, color, 0.95 - 0.3 * i)
+            if drop[1] >= self.H:
+                drop[0], drop[1] = self.rng.uniform(0, self.W), self.rng.uniform(-6, 0)
+
+    def _lightning(self, img, w):
+        if w["thunder"] and self.flash == 0 and self.rng.random() < 1 / 250:
+            self.flash = 3
+        if self.flash:
+            img += (90, 90, 110) if self.flash != 2 else (25, 25, 30)
+            self.flash -= 1
+
+    def _draw_ground(self, img, daylight, overcast):
         H = self.H
-        ground = _mix((4, 8, 6), (22, 62, 28), daylight)
+        dim = 1 - 0.1 * overcast
+        ground = _mix((4, 8, 6), (26 * dim, 66 * dim, 30 * dim), daylight)
         for x, h in enumerate(self.ground):
             img[H - h:, x] = ground
-        house, roof = _mix((10, 10, 14), (70, 55, 50), daylight), _mix((14, 12, 16), (110, 45, 40), daylight)
+        tree = _mix((3, 9, 5), (18 * dim, 52 * dim, 24 * dim), daylight)
+        for tx in self.trees:
+            base = H - self.ground[tx]
+            for dx, dy in ((0, 1), (0, 2), (-1, 3), (0, 3), (1, 3), (-1, 4), (0, 4), (1, 4), (0, 5)):
+                self._put(img, tx + dx, base - dy, tree)
+        wall = _mix((9, 9, 13), (105 * dim, 96 * dim, 86 * dim), daylight)   # warm stone
+        roof = _mix((6, 6, 10), (52 * dim, 58 * dim, 72 * dim), daylight)    # slate grey
+        glass = _mix((6, 6, 10), (24, 32, 46), daylight)
         lights_on = daylight < 0.5
-        for i, hx in enumerate(self.houses):
-            base = H - max(self.ground[hx:hx + 5])
-            for dx in range(5):
-                for dy in range(1, 4):
-                    self._put(img, hx + dx, base - dy, house)
-            for dx in range(-1, 6):
-                self._put(img, hx + dx, base - 4, roof)
-            for dx in range(1, 4):
-                self._put(img, hx + dx, base - 5, roof)
-            if lights_on:
-                if self.frame_no % 7 == 0:
-                    self.window_flicker[i] = self.rng.uniform(0.75, 1.0)
-                level = self.window_flicker[i] * (1 - daylight * 1.6)
-                self._put(img, hx + 1, base - 2, tuple(c * level for c in (255, 190, 70)))
-                self._put(img, hx + 3, base - 2, tuple(c * level for c in (255, 190, 70)))
+        for i, (hx, hw, hh) in enumerate(self.houses):
+            base = H - max(self.ground[hx:hx + hw])
+            for dx in range(hw):
+                for dy in range(1, hh + 1):
+                    self._put(img, hx + dx, base - dy, wall)
+            for row in range((hw + 1) // 2 + 1):        # gable roof, one pixel wider than the walls
+                for dx in range(-1 + row, hw + 1 - row):
+                    self._put(img, hx + dx, base - hh - 1 - row, roof)
+            if self.frame_no % 7 == 0:
+                self.window_flicker[i] = self.rng.uniform(0.8, 1.0)
+            level = self.window_flicker[i] * clamp(1 - daylight * 2)
+            for wx in range(1, hw - 1, 2):
+                color = tuple(c * level for c in (255, 185, 80)) if lights_on and (i + wx) % 3 else glass
+                self._put(img, hx + wx, base - 2, color)
 
 
 if __name__ == "__main__":

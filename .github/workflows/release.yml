@@ -1,0 +1,21 @@
+# Publishes a GitHub release when a version tag (v1.2.3) is pushed, e.g. by deploy/release.sh.
+# The Pis' System page offers the newest release as an update.
+name: Release
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check VERSION matches the tag
+        run: test "v$(cat VERSION)" = "$GITHUB_REF_NAME"
+      - name: Check Python files compile
+        run: python3 -m py_compile display_control/*.py
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

@@ -189,6 +189,7 @@ class Display:
         options.chain_length = cfg['chain']
         options.parallel = cfg['parallel']
         options.gpio_slowdown = int(os.getenv('LED_GPIO_SLOWDOWN') or default_gpio_slowdown())
+        options.brightness = max(10, min(100, int(os.getenv('LED_BRIGHTNESS') or 100)))
         self.matrix = RGBMatrix(options=options)
         self.offscreen_canvas = self.matrix.CreateFrameCanvas()
 
@@ -197,7 +198,7 @@ class Display:
         self.height = cfg['rows'] * cfg['parallel'] - self.y_offset
         print(f"Panel {self.width}x{self.height} (rows={cfg['rows']} cols={cfg['cols']} "
               f"chain={cfg['chain']} parallel={cfg['parallel']} y_offset={self.y_offset}), "
-              f"gpio_slowdown={options.gpio_slowdown}", flush=True)
+              f"gpio_slowdown={options.gpio_slowdown} brightness={options.brightness}", flush=True)
 
         self.font_small = graphics.Font()
         self.font_small.LoadFont(os.path.join(font_dir, "4x6.bdf"))

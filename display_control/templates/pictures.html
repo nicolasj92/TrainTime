@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Pictures{% endblock %}
+{% block content %}
+<style>
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 14px; }
+  .pic { background: #f8f9fa; border-radius: 12px; padding: 8px; border: 2px solid transparent; }
+  .pic.off { opacity: 0.5; }
+  .pic canvas { width: 100%; display: block; border-radius: 6px; background: #111; cursor: pointer; }
+  .pic .name { font-size: 0.8em; color: #555; margin: 6px 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pic .tools { display: flex; gap: 4px; align-items: center; }
+  .pic .tools button { border: 0; background: #e4e6ee; border-radius: 6px; padding: 5px 8px; cursor: pointer; font-size: 0.8em; }
+  .pic .tools label { margin: 0 auto 0 0; font-weight: 500; display: flex; gap: 4px; align-items: center; font-size: 0.85em; }
+  .upload { display: inline-block; cursor: pointer; }
+  .upload input { display: none; }
+  #editor { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: none; align-items: center;
+            justify-content: center; padding: 14px; z-index: 10; }
+  #editor .panel { background: white; border-radius: 16px; padding: 18px; max-width: 720px; width: 100%;
+                   max-height: 100%; overflow: auto; }
+  #stage { position: relative; touch-action: none; user-select: none; margin: 10px auto; width: fit-content; }
+  #stage img { display: block; max-width: 100%; max-height: 52vh; }
+  #box { position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 9999px rgba(0,0,0,.55); cursor: move; }
+  #big { width: 100%; max-width: 384px; display: block; margin: 8px auto; border-radius: 6px; background: #111; }
+  input[type=range] { width: 100%; }
+</style>
+
+<h1>Pictures</h1>
+<p class="subtitle">Slideshow for the Pictures mode. Tap a picture to choose the part the {{ panel }} panel shows.</p>
+{% if not showing %}<p class="notice">The display isn't in Pictures mode. <a href="/switch/picture">Show pictures now</a></p>{% endif %}
+
+<label class="btn upload">+ Add pictures<input type="file" id="file" accept="image/*" multiple></label>
+<span class="hint" id="upmsg"></span>
+
+<div class="grid" id="grid"></div>
+<p class="hint" id="empty" hidden>No pictures yet.</p>
+
+<h2>Slideshow</h2>
+<form method="post">
+  <div class="row">
+    <div><label>Seconds per picture</label><input type="number" name="seconds" min="3" max="3600" value="{{ seconds }}"></div>
+    <div><label>Transition</label>
+      <select name="transition">{% for k, v in transitions.items() %}<option value="{{ k }}" {{ 'selected' if k == transition }}>{{ v }}</option>{% endfor %}</select></div>
+  </div>
+  <button class="btn" type="submit">Save</button>
+</form>
+
+<div id="editor"><div class="panel">
+  <h2 style="margin-top:0">Choose the part to show</h2>
+  <p class="hint">Drag the frame, zoom with the slider (or mouse wheel).</p>
+  <div id="stage"><img id="cimg" alt=""><div id="box"></div></div>
+  <label>Zoom</label><input type="range" id="zoom" min="10" max="100" value="100">
+  <label>On the panel</label><canvas id="big"></canvas>
+  <div class="row" style="margin-top:6px">
+    <button class="btn grey" type="button" onclick="closeEditor()">Cancel</button>
+    <button class="btn grey" type="button" onclick="resetCrop()">Centre</button>
+    <button class="btn" type="button" onclick="saveCrop()">Save</button>
+  </div>
+</div></div>
+
+<script>
+const PANEL = "{{ panel }}", PW = {{ panel_w }}, PH = {{ panel_h }};
+let pics = {{ pictures|tojson }};
+
+function defaultCrop(iw, ih) {
+  const target = PW / PH;
+  if (iw / ih > target) { const w = ih * target / iw; return [(1 - w) / 2, 0, w, 1]; }
+  const h = iw / target / ih; return [0, (1 - h) / 2, 1, h];
+}
+function cropOf(p, img) { return (p.crop || {})[PANEL] || defaultCrop(img.naturalWidth, img.naturalHeight); }
+
+// Same tuning as pictures.py: lift shadows, contrast 1.15, colour 1.3
+function tune(r, g, b) {
+  let c = [r, g, b].map(v => 255 * Math.pow(v / 255, 0.75));
+  c = c.map(v => 128 + (v - 128) * 1.15);
+  const l = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+  return c.map(v => Math.max(0, Math.min(255, Math.round(l + (v - l) * 1.3))));
+}
+
+// Draw the crop as the LED panel shows it: PW x PH round dots
+function ledPreview(canvas, img, crop) {
+  const [x, y, w, h] = crop, iw = img.naturalWidth, ih = img.naturalHeight;
+  const mid = document.createElement('canvas'); mid.width = PW * 4; mid.height = PH * 4;
+  const m = mid.getContext('2d'); m.imageSmoothingQuality = 'high';
+  m.drawImage(img, x * iw, y * ih, w * iw, h * ih, 0, 0, mid.width, mid.height);
+  const small = document.createElement('canvas'); small.width = PW; small.height = PH;
+  const s = small.getContext('2d'); s.imageSmoothingQuality = 'high';
+  s.drawImage(mid, 0, 0, PW, PH);
+  const data = s.getImageData(0, 0, PW, PH).data, k = 8;
+  canvas.width = PW * k; canvas.height = PH * k;
+  const o = canvas.getContext('2d');
+  o.fillStyle = '#111'; o.fillRect(0, 0, canvas.width, canvas.height);
+  for (let py = 0; py < PH; py++) for (let px = 0; px < PW; px++) {
+    const i = (py * PW + px) * 4, [r, g, b] = tune(data[i], data[i + 1], data[i + 2]);
+    o.fillStyle = `rgb(${r},${g},${b})`;
+    o.beginPath(); o.arc(px * k + k / 2, py * k + k / 2, k * 0.42, 0, 6.2832); o.fill();
+  }
+}
+
+async function api(url, method, body) {
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body && JSON.stringify(body)});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  if (j.pictures) { pics = j.pictures; render(); }
+  return j;
+}
+
+function render() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  document.getElementById('empty').hidden = pics.length > 0;
+  pics.forEach((p, i) => {
+    const card = document.createElement('div');
+    card.className = 'pic' + (p.enabled ? '' : ' off');
+    card.innerHTML = `<canvas title="Choose the part to show"></canvas><div class="name"></div>
+      <div class="tools"><label><input type="checkbox" ${p.enabled ? 'checked' : ''}> Show</label>
+      <button title="Earlier" ${i ? '' : 'disabled'}>◀</button><button title="Later" ${i < pics.length - 1 ? '' : 'disabled'}>▶</button>
+      <button title="Delete">✕</button></div>`;
+    card.querySelector('.name').textContent = p.name;
+    const img = new Image();
+    img.onload = () => ledPreview(card.querySelector('canvas'), img, cropOf(p, img));
+    img.src = `/pictures/img/${p.id}/thumb`;
+    card.querySelector('canvas').onclick = () => openEditor(p);
+    card.querySelector('input').onchange = e => api(`/api/pictures/${p.id}`, 'POST', {enabled: e.target.checked});
+    const [earlier, later, del] = card.querySelectorAll('button');
+    earlier.onclick = () => api(`/api/pictures/${p.id}`, 'POST', {move: -1});
+    later.onclick = () => api(`/api/pictures/${p.id}`, 'POST', {move: 1});
+    del.onclick = () => confirm(`Delete ${p.name}?`) && api(`/api/pictures/${p.id}`, 'DELETE');
+    grid.appendChild(card);
+  });
+}
+
+// --- upload: shrink in the browser first (fast on a Pi 3, and handles iPhone HEIC) ---
+async function shrink(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image(); img.src = url; await img.decode();
+    const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise(res => c.toBlob(res, 'image/jpeg', 0.9));
+  } catch (e) { return file; } finally { URL.revokeObjectURL(url); }
+}
+document.getElementById('file').onchange = async e => {
+  const files = [...e.target.files], msg = document.getElementById('upmsg');
+  for (const [i, f] of files.entries()) {
+    msg.textContent = `Uploading ${i + 1} of ${files.length}…`;
+    const form = new FormData();
+    form.append('file', await shrink(f), f.name.replace(/\.\w+$/, '') + '.jpg');
+    const r = await fetch('/api/pictures', {method: 'POST', body: form});
+    if (!r.ok) { msg.textContent = (await r.json().catch(() => ({}))).error || 'Upload failed'; return; }
+    pics.push(...(await r.json()).added); render();
+  }
+  msg.textContent = files.length ? 'Done. Tap a picture to choose the part to show.' : '';
+  e.target.value = '';
+};
+
+// --- crop editor ---
+let editing = null, crop = null;
+const cimg = document.getElementById('cimg'), box = document.getElementById('box'),
+      zoom = document.getElementById('zoom'), stage = document.getElementById('stage');
+
+function openEditor(p) {
+  editing = p;
+  document.getElementById('editor').style.display = 'flex';
+  cimg.onload = () => { crop = cropOf(p, cimg).slice(); syncZoom(); draw(); };
+  cimg.src = `/pictures/img/${p.id}/full`;
+}
+function closeEditor() { document.getElementById('editor').style.display = 'none'; editing = null; }
+function maxW() { return defaultCrop(cimg.naturalWidth, cimg.naturalHeight)[2]; }   // widest crop, as a fraction
+function hFor(w) { return w * cimg.naturalWidth / (PW / PH) / cimg.naturalHeight; }
+function clampCrop() {
+  crop[0] = Math.max(0, Math.min(1 - crop[2], crop[0]));
+  crop[1] = Math.max(0, Math.min(1 - crop[3], crop[1]));
+}
+function syncZoom() { zoom.value = Math.round(crop[2] / maxW() * 100); }
+function draw() {
+  const W = cimg.clientWidth, H = cimg.clientHeight;
+  Object.assign(box.style, {left: crop[0] * W + 'px', top: crop[1] * H + 'px', width: crop[2] * W + 'px', height: crop[3] * H + 'px'});
+  ledPreview(document.getElementById('big'), cimg, crop);
+}
+function setZoom(pct) {
+  const cx = crop[0] + crop[2] / 2, cy = crop[1] + crop[3] / 2;
+  crop[2] = maxW() * Math.max(10, Math.min(100, pct)) / 100; crop[3] = hFor(crop[2]);
+  crop[0] = cx - crop[2] / 2; crop[1] = cy - crop[3] / 2; clampCrop(); draw();
+}
+zoom.oninput = () => setZoom(+zoom.value);
+stage.addEventListener('wheel', e => { e.preventDefault(); zoom.value = +zoom.value - Math.sign(e.deltaY) * 4; setZoom(+zoom.value); }, {passive: false});
+let drag = null;
+stage.onpointerdown = e => { stage.setPointerCapture(e.pointerId); drag = {x: e.clientX, y: e.clientY, c: crop.slice()}; };
+stage.onpointermove = e => {
+  if (!drag) return;
+  crop[0] = drag.c[0] + (e.clientX - drag.x) / cimg.clientWidth;
+  crop[1] = drag.c[1] + (e.clientY - drag.y) / cimg.clientHeight;
+  clampCrop(); draw();
+};
+stage.onpointerup = stage.onpointercancel = () => drag = null;
+window.onresize = () => editing && draw();
+function resetCrop() { crop = defaultCrop(cimg.naturalWidth, cimg.naturalHeight); syncZoom(); draw(); }
+async function saveCrop() {
+  await api(`/api/pictures/${editing.id}`, 'POST', {crop: crop.map(v => +v.toFixed(5))});
+  closeEditor();
+}
+render();
+</script>
+{% endblock %}

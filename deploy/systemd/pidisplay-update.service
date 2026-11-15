@@ -1,0 +1,9 @@
+[Unit]
+Description=TrainTime software update (latest GitHub release)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pidisplay-update
+TimeoutStartSec=30min

@@ -87,8 +87,32 @@ def sample_departures():
     ])
 
 
+class FixedWeather:
+    def __init__(self, **values):
+        from sky_display import FAIR
+        self.now = {**FAIR, **values}
+
+
+WEATHER_SAMPLES = [  # (label, hour, minute, weather)
+    ("clear", 12, 30, dict(clouds=0.0)),
+    ("some clouds", 12, 30, dict(clouds=0.35)),
+    ("overcast", 12, 30, dict(clouds=0.95)),
+    ("rain", 12, 30, dict(clouds=1.0, rain=2.0)),
+    ("snow", 12, 30, dict(clouds=1.0, snow=1.0)),
+    ("cloudy night", 22, 0, dict(clouds=0.5)),
+]
+
+
+def sheet(images, gap=20):
+    w, h = images[0].size
+    out = Image.new("RGB", (w * len(images) + gap * (len(images) - 1), h), (60, 60, 60))
+    for i, im in enumerate(images):
+        out.paste(im, (i * (w + gap), 0))
+    return out
+
+
 def render_sky(size, out_dir, gif=False):
-    """Sky clock: a strip of four moments of one day, plus an optional 24-hour time-lapse."""
+    """Sky clock: four moments of one day, the weather variants, and an optional 24-hour time-lapse."""
     from zoneinfo import ZoneInfo
     from sky_display import Sky
     os.environ["LED_PANEL"] = size
@@ -96,23 +120,33 @@ def render_sky(size, out_dir, gif=False):
     d = cap.display()
     day = datetime(2026, 11, 15, tzinfo=ZoneInfo("Europe/Berlin"))
     clock = {"t": day}
-    m = Sky(d, now=lambda: clock["t"])
     strip = []
+    m = Sky(d, now=lambda: clock["t"], weather=FixedWeather())
     for hh, mm in [(1, 30), (7, 25), (12, 30), (16, 50)]:
         clock["t"] = day.replace(hour=hh, minute=mm)
         for _ in range(3):
             m.frame()
             d.swap()
         strip.append(to_image(cap.frames[-1]))
-    w, h = strip[0].size
-    sheet = Image.new("RGB", (w * 4 + 3 * 20, h), (60, 60, 60))
-    for i, im in enumerate(strip):
-        sheet.paste(im, (i * (w + 20), 0))
     png = out_dir / f"sky_{size}.png"
-    sheet.save(png)
+    sheet(strip).save(png)
     print(f"wrote {png.relative_to(HERE)}  (01:30, 07:25, 12:30, 16:50 on 15 Nov)")
+
+    variants = []
+    for label, hh, mm, weather in WEATHER_SAMPLES:
+        clock["t"] = day.replace(hour=hh, minute=mm)
+        m = Sky(d, now=lambda: clock["t"], weather=FixedWeather(**weather))
+        for _ in range(40):                      # let rain/snow fill the sky
+            m.frame()
+            d.swap()
+        variants.append(to_image(cap.frames[-1]))
+    png = out_dir / f"sky_weather_{size}.png"
+    sheet(variants).save(png)
+    print(f"wrote {png.relative_to(HERE)}  ({', '.join(v[0] for v in WEATHER_SAMPLES)})")
+
     if gif:
         cap.frames.clear()
+        m = Sky(d, now=lambda: clock["t"], weather=FixedWeather(clouds=0.3))
         for i in range(144):                      # every 10 minutes
             clock["t"] = day + timedelta(minutes=10 * i)
             m.frame()

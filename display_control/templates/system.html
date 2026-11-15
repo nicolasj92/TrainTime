@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}System{% endblock %}
+{% block content %}
+<h1>System</h1>
+<p class="subtitle">{{ hostname }} · software version {{ version }}</p>
+
+{% if reboot_required %}<div class="notice">Restart the Pi to finish the last update (boot settings changed).
+  <button class="btn small" style="margin-left:8px" onclick="fetch('/api/reboot',{method:'POST'});this.textContent='Restarting… (about a minute)'">Restart now</button></div>{% endif %}
+
+<h2>Software update</h2>
+<div class="status-card" id="update">
+  {% if latest.release %}
+    {% if available %}
+      <div class="status-label">New version available</div>
+      <div class="status-value">{{ latest.release.name }} <span class="hint">({{ latest.release.date }})</span></div>
+      {% if latest.release.notes %}<pre class="hint" style="white-space:pre-wrap;margin-top:10px">{{ latest.release.notes }}</pre>{% endif %}
+      <button class="btn" id="upbtn" onclick="startUpdate()">Update to {{ latest.release.tag }}</button>
+    {% else %}
+      <div class="status-label">Up to date</div>
+      <div class="status-value status-active">{{ version }}</div>
+      <p class="hint">Latest release: {{ latest.release.tag }} ({{ latest.release.date }})</p>
+    {% endif %}
+  {% else %}
+    <div class="status-label">Couldn't check for updates</div>
+    <p class="hint">{{ latest.error or 'Not checked yet' }}</p>
+  {% endif %}
+  <p class="hint" style="margin-top:10px"><a href="/system?check=1">Check again</a> · Updates only change the TrainTime software (modes, web pages, scripts); settings and pictures are kept.</p>
+  <div id="progress" hidden><p><b id="upstate">Starting…</b></p><pre class="hint" id="uplog" style="white-space:pre-wrap"></pre></div>
+</div>
+
+<form method="post">
+  <h2>Location</h2>
+  <p class="hint">For the Sky Clock: where the sun and moon are, and the local weather.</p>
+  <input type="hidden" name="place" id="place" value="{{ place }}">
+  {% if place %}<p><b id="placeshow">{{ place }}</b></p>{% else %}<p><b id="placeshow"></b></p>{% endif %}
+  <div class="row"><input type="text" id="q" placeholder="Search a town, e.g. Darmstadt"><button type="button" class="btn small grey" onclick="geo()">Search</button></div>
+  <div class="list" id="results" hidden></div>
+  <div class="row">
+    <div><label>Latitude</label><input type="text" name="lat" id="lat" value="{{ lat }}"></div>
+    <div><label>Longitude</label><input type="text" name="lon" id="lon" value="{{ lon }}"></div>
+  </div>
+  <div class="chips" style="margin-top:12px"><label><input type="checkbox" name="weather" {{ 'checked' if weather }}> Show live weather (open-meteo.com)</label></div>
+
+  <h2>Brightness</h2>
+  <label>Panel brightness: <span id="bv">{{ brightness }}</span>%</label>
+  <input type="range" name="brightness" min="10" max="100" step="5" value="{{ brightness }}" oninput="bv.textContent=this.value">
+  <p class="hint">Lower it if the display flickers: that usually means the power supply can't keep up.</p>
+
+  <h2>GitHub access</h2>
+  <label>Token (only if the repository is private)</label>
+  <input type="password" name="github_token" placeholder="{{ 'saved – leave empty to keep' if has_token else 'not needed for a public repository' }}" autocomplete="off">
+
+  <button class="btn" type="submit">Save &amp; apply</button>
+</form>
+
+<script>
+async function geo() {
+  const res = document.getElementById('results');
+  const r = await fetch('/api/geocode?q=' + encodeURIComponent(document.getElementById('q').value));
+  const list = await r.json();
+  res.hidden = false; res.innerHTML = '';
+  if (list.error || !list.length) { res.innerHTML = `<div>${list.error ? 'Search failed' : 'Nothing found'}</div>`; return; }
+  for (const p of list) {
+    const b = document.createElement('button'); b.type = 'button';
+    b.textContent = p.name;
+    b.onclick = () => { lat.value = p.lat.toFixed(4); lon.value = p.lon.toFixed(4); place.value = p.name;
+                        placeshow.textContent = p.name; res.hidden = true; };
+    res.appendChild(b);
+  }
+}
+
+async function startUpdate() {
+  const started = Date.now() / 1000 - 5;
+  document.getElementById('upbtn').disabled = true;
+  document.getElementById('progress').hidden = false;
+  const r = await fetch('/api/update', {method: 'POST'});
+  if (!r.ok) { upstate.textContent = (await r.json()).error; return; }
+  const poll = async () => {
+    try {
+      const s = await (await fetch('/api/update/status')).json();
+      uplog.textContent = s.log.join('\n');
+      if (s.state && s.state.time >= started) {
+        upstate.textContent = s.state.message;
+        if (s.state.state === 'done') { upstate.textContent += ' – reloading…'; return setTimeout(() => location.href = '/system', 3000); }
+        if (s.state.state === 'failed') return;
+      }
+    } catch (e) { upstate.textContent = 'Restarting the web interface…'; }
+    setTimeout(poll, 2000);
+  };
+  poll();
+}
+</script>
+{% endblock %}

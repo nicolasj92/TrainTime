@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Update TrainTime to the latest GitHub release. Started by pidisplay-update.service
+# (from the web UI's System page). Runs as root. Only the software is replaced:
+# display_control/.env (settings) and display_control/pictures/ are kept.
+#
+# Progress: /run/pidisplay/update.json (read by the web UI), log: /var/log/pidisplay-update.log
+#   sudo systemctl start pidisplay-update        # same as the button
+#   sudo /usr/local/sbin/pidisplay-update --force   # reinstall even if up to date
+set -uo pipefail
+
+main() {
+  REPO_DIR=/home/pi/workspace/TrainTime
+  ENV="$REPO_DIR/display_control/.env"
+  STATE=/run/pidisplay/update.json
+  LOG=/var/log/pidisplay-update.log
+  exec > >(tee "$LOG") 2>&1
+
+  setting() { sed -n "s/^$1=//p" "$ENV" 2>/dev/null | tail -1; }
+  status() {
+    mkdir -p /run/pidisplay
+    python3 -c 'import json,sys,time; print(json.dumps({"state": sys.argv[1], "message": sys.argv[2], "time": time.time()}))' \
+      "$1" "$2" > "$STATE.tmp" && chmod 644 "$STATE.tmp" && mv "$STATE.tmp" "$STATE"
+    echo "== $2"
+  }
+  fail() { status failed "$1"; exit 1; }
+
+  GH_REPO="$(setting GITHUB_REPO)"; GH_REPO="${GH_REPO:-nicolasj92/TrainTime}"
+  TOKEN="$(setting GITHUB_TOKEN)"
+  CURL=(curl -fsSL --retry 2 -H "Accept: application/vnd.github+json")
+  [[ -n "$TOKEN" ]] && CURL+=(-H "Authorization: Bearer $TOKEN")
+
+  status running "Checking GitHub for the latest release"
+  json="$("${CURL[@]}" "https://api.github.com/repos/$GH_REPO/releases/latest")" || fail "Couldn't reach GitHub"
+  tag="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' <<<"$json")" || fail "Unexpected answer from GitHub"
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "Unexpected release tag $tag"
+  current="$(cat "$REPO_DIR/VERSION" 2>/dev/null || true)"
+  if [[ "v$current" == "$tag" && "${1:-}" != --force ]]; then status done "Already on $tag"; exit 0; fi
+
+  work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+  status running "Downloading $tag"
+  "${CURL[@]}" -o "$work/release.tar.gz" "https://api.github.com/repos/$GH_REPO/tarball/$tag" || fail "Download failed"
+  mkdir "$work/src" && tar -xzf "$work/release.tar.gz" -C "$work/src" --strip-components=1 || fail "Couldn't unpack the release"
+  [[ -f "$work/src/deploy/install.sh" && -f "$work/src/display_control/web_control.py" \
+     && "$(cat "$work/src/VERSION" 2>/dev/null)" == "${tag#v}" ]] || fail "The release archive looks wrong"
+
+  status running "Installing $tag"
+  KEEP=(--exclude /.git --exclude /display_control/.env --exclude /display_control/pictures/)
+  rsync -a --delete "${KEEP[@]}" "$REPO_DIR/" "$REPO_DIR.previous/"          # for a rollback
+  rsync -a --delete "${KEEP[@]}" "$work/src/" "$REPO_DIR/"
+  chown -R pi:pi "$REPO_DIR" "$REPO_DIR.previous"
+
+  if runuser -u pi -- env PIDISPLAY_UPDATE=1 bash "$REPO_DIR/deploy/install.sh"; then
+    status done "Updated to $tag"
+  else
+    echo "install.sh failed, restoring ${current:-the previous version}"
+    rsync -a --delete "${KEEP[@]}" "$REPO_DIR.previous/" "$REPO_DIR/"
+    runuser -u pi -- env PIDISPLAY_UPDATE=1 bash "$REPO_DIR/deploy/install.sh" || true
+    fail "Update to $tag failed, kept ${current:-the previous version} (see $LOG)"
+  fi
+}
+
+# Everything is in main() so bash has read the whole script before install.sh replaces it
+main "$@"
+exit

@@ -8,8 +8,8 @@ Type=simple
 # root is required by rpi-rgb-led-matrix for GPIO timing
 User=root
 WorkingDirectory=/home/pi/workspace/TrainTime/display_control
-# Mode is selected by the web UI (web_control.py), which rewrites this line
-ExecStart=/usr/bin/python3 christmas_display.py
+# Runs the mode set by DISPLAY_MODE in display_control/.env (changed by the web UI)
+ExecStart=/usr/bin/python3 main.py
 Restart=always
 RestartSec=10
 
