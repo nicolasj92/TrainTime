@@ -87,7 +87,45 @@ def sample_departures():
     ])
 
 
+def render_sky(size, out_dir, gif=False):
+    """Sky clock: a strip of four moments of one day, plus an optional 24-hour time-lapse."""
+    from zoneinfo import ZoneInfo
+    from sky_display import Sky
+    os.environ["LED_PANEL"] = size
+    cap = Capture()
+    d = cap.display()
+    day = datetime(2026, 11, 15, tzinfo=ZoneInfo("Europe/Berlin"))
+    clock = {"t": day}
+    m = Sky(d, now=lambda: clock["t"])
+    strip = []
+    for hh, mm in [(1, 30), (7, 25), (12, 30), (16, 50)]:
+        clock["t"] = day.replace(hour=hh, minute=mm)
+        for _ in range(3):
+            m.frame()
+            d.swap()
+        strip.append(to_image(cap.frames[-1]))
+    w, h = strip[0].size
+    sheet = Image.new("RGB", (w * 4 + 3 * 20, h), (60, 60, 60))
+    for i, im in enumerate(strip):
+        sheet.paste(im, (i * (w + 20), 0))
+    png = out_dir / f"sky_{size}.png"
+    sheet.save(png)
+    print(f"wrote {png.relative_to(HERE)}  (01:30, 07:25, 12:30, 16:50 on 15 Nov)")
+    if gif:
+        cap.frames.clear()
+        for i in range(144):                      # every 10 minutes
+            clock["t"] = day + timedelta(minutes=10 * i)
+            m.frame()
+            d.swap()
+        imgs = [to_image(f, scale=6) for f in cap.frames]
+        out = out_dir / f"sky_{size}.gif"
+        imgs[0].save(out, save_all=True, append_images=imgs[1:], duration=80, loop=0)
+        print(f"wrote {out.relative_to(HERE)}  (24 h time-lapse)")
+
+
 def render(mode, size, out_dir, frames_for_gif=0):
+    if mode == "sky":
+        return render_sky(size, out_dir, gif=bool(frames_for_gif))
     os.environ["LED_PANEL"] = size
     cap = Capture()
     d = cap.display()
@@ -128,16 +166,16 @@ def render(mode, size, out_dir, frames_for_gif=0):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--size", choices=[*PANEL_PRESETS, "all"], default="all")
-    parser.add_argument("--mode", choices=["christmas", "power", "departures", "wifi", "all"], default="all")
-    parser.add_argument("--gif", action="store_true", help="also write an animated GIF of christmas")
+    parser.add_argument("--mode", choices=["christmas", "power", "departures", "sky", "wifi", "all"], default="all")
+    parser.add_argument("--gif", action="store_true", help="also write animated GIFs (christmas, sky time-lapse)")
     args = parser.parse_args()
     out_dir = HERE / "previews"
     out_dir.mkdir(exist_ok=True)
     sizes = list(PANEL_PRESETS) if args.size == "all" else [args.size]
-    modes = ["christmas", "power", "departures", "wifi"] if args.mode == "all" else [args.mode]
+    modes = ["christmas", "power", "departures", "sky", "wifi"] if args.mode == "all" else [args.mode]
     for size in sizes:
         for mode in modes:
-            render(mode, size, out_dir, frames_for_gif=80 if (args.gif and mode == "christmas") else 0)
+            render(mode, size, out_dir, frames_for_gif=80 if (args.gif and mode in ("christmas", "sky")) else 0)
 
 
 if __name__ == "__main__":

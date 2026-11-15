@@ -45,6 +45,11 @@ DISPLAY_MODES = {
         'name': 'Departures',
         'description': 'Next buses and trams (RMV)',
         'script': 'departures_display.py'
+    },
+    'sky': {
+        'name': 'Sky Clock',
+        'description': 'Real sun, moon and stars over your location',
+        'script': 'sky_display.py'
     }
 }
 

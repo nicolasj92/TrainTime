@@ -220,6 +220,11 @@ class Display:
         if 0 <= x < self.width and 0 <= y < self.height:
             self.offscreen_canvas.SetPixel(x, y + self.y_offset, r, g, b)
 
+    def image(self, pixels):
+        """Draw a whole frame at once from a (height, width, 3) uint8 numpy array (fast)."""
+        from PIL import Image
+        self.offscreen_canvas.SetImage(Image.fromarray(pixels, 'RGB'), 0, self.y_offset)
+
     def text(self, font, x, y, color, text):
         """Draw text with its baseline at y. Returns the width drawn."""
         if isinstance(color, tuple):

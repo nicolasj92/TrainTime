@@ -38,6 +38,13 @@ class Canvas:
     def Fill(self, r, g, b):
         self.pixels[:] = (r, g, b)
 
+    def SetImage(self, image, offset_x=0, offset_y=0, unsafe=True):
+        src = np.asarray(image.convert("RGB"))
+        h = min(src.shape[0], self.height - offset_y)
+        w = min(src.shape[1], self.width - offset_x)
+        if h > 0 and w > 0:
+            self.pixels[offset_y:offset_y + h, offset_x:offset_x + w] = src[:h, :w]
+
 
 class RGBMatrix:
     # Called with a copy of every frame passed to SwapOnVSync (set by the simulator)

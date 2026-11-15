@@ -8,6 +8,7 @@ modes, and you switch between them from a small web page on the Pi.
 | Christmas | ![](display_control/previews/christmas_64x32.gif) | ![](display_control/previews/christmas_32x32.gif) |
 | Power Flow | ![](display_control/previews/power_64x32.png) | ![](display_control/previews/power_32x32.png) |
 | Departures | ![](display_control/previews/departures_64x32.png) | ![](display_control/previews/departures_32x32.png) |
+| Sky Clock | ![](display_control/previews/sky_64x32.gif) | ![](display_control/previews/sky_32x32.gif) |
 
 ## Display modes
 
@@ -15,6 +16,7 @@ modes, and you switch between them from a small web page on the Pi.
 |---|---|---|
 | Christmas Snow | `christmas_display.py` | Clock with falling snow that piles up on the ground and roofs, melts slowly and gets cleared by a passing snowplow |
 | Power Flow | `power_display.py` | Live solar / grid / house power from Home Assistant, with animated arrows showing where the power flows |
+| Sky Clock | `sky_display.py` | The real sky over your location: colours follow the sun (night, dawn, day, dusk), sun and moon (with its current phase) move to their real positions, twinkling stars and the odd shooting star, clouds by day, houses lit at night. Calculated on the Pi, no internet needed |
 | Departures | `departures_display.py` | Next buses/trams/trains from an RMV stop (default: Darmstadt Luisenplatz towards Hbf and Lichtwiese), real-time minutes; yellow = late, red X = cancelled |
 
 One mode runs at a time, as the systemd service `traintime.service`.
@@ -115,6 +117,7 @@ Everything goes in `display_control/.env`, which is gitignored. The template is
 |---|---|---|
 | `LED_PANEL` | all modes | `64x32` (default) or `32x32` |
 | `LED_GPIO_SLOWDOWN` | all modes | Empty = auto by Pi model. Raise it if the image glitches |
+| `SKY_LAT` / `SKY_LON` | Sky Clock | Location for sun and moon (default Darmstadt, 49.87 / 8.65) |
 | `HA_URL` | Power Flow | e.g. `http://homeassistant.local:8123` |
 | `HA_TOKEN` | Power Flow | Home Assistant long-lived access token |
 | `HA_SOLAR_ENTITY` | Power Flow | Solar production sensor in W |
@@ -181,6 +184,7 @@ display_control/
   christmas_display.py   Christmas Snow mode
   power_display.py       Power Flow mode (Home Assistant)
   departures_display.py  Departures mode (RMV)
+  sky_display.py         Sky Clock mode (sun/moon maths ported from suncalc.js)
   utils.py               panel presets, Display (size-aware drawing), icons, shared run loop
   web_control.py         web UI on :5000: modes, departures settings, Wi-Fi (+ templates/)
   simulator.py           renders previews with fake_rgbmatrix.py on a normal computer
