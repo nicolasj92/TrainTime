@@ -109,6 +109,9 @@ if ! grep -q '^WIFI_SETUP_PASSWORD=.\{8,\}' "$ENV"; then
   echo "    hotspot password: $PW (also shown on the display while the hotspot is up)"
 fi
 
+# Everything in the repo belongs to pi (the display runs as root and may have left caches)
+sudo chown -R pi:pi "$REPO_DIR"
+
 echo "==> systemd services"
 for s in traintime display-control-web wifi-fallback pidisplay-update; do
   sudo install -m 0644 "$DEPLOY/systemd/$s.service" /etc/systemd/system/$s.service

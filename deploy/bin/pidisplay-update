@@ -45,15 +45,16 @@ main() {
 
   status running "Installing $tag"
   KEEP=(--exclude /.git --exclude /display_control/.env --exclude /display_control/pictures/)
-  rsync -a --delete "${KEEP[@]}" "$REPO_DIR/" "$REPO_DIR.previous/"          # for a rollback
-  rsync -a --delete "${KEEP[@]}" "$work/src/" "$REPO_DIR/"
-  chown -R pi:pi "$REPO_DIR" "$REPO_DIR.previous"
+  # --chown: files belong to pi from the first moment, so the web UI can keep saving settings
+  SYNC=(rsync -a --delete --chown=pi:pi "${KEEP[@]}")
+  "${SYNC[@]}" "$REPO_DIR/" "$REPO_DIR.previous/"          # for a rollback
+  "${SYNC[@]}" "$work/src/" "$REPO_DIR/"
 
   if runuser -u pi -- env PIDISPLAY_UPDATE=1 bash "$REPO_DIR/deploy/install.sh"; then
     status done "Updated to $tag"
   else
     echo "install.sh failed, restoring ${current:-the previous version}"
-    rsync -a --delete "${KEEP[@]}" "$REPO_DIR.previous/" "$REPO_DIR/"
+    "${SYNC[@]}" "$REPO_DIR.previous/" "$REPO_DIR/"
     runuser -u pi -- env PIDISPLAY_UPDATE=1 bash "$REPO_DIR/deploy/install.sh" || true
     fail "Update to $tag failed, kept ${current:-the previous version} (see $LOG)"
   fi

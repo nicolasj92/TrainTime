@@ -7,6 +7,8 @@ Wants=network-online.target
 Type=simple
 # root is required by rpi-rgb-led-matrix for GPIO timing
 User=root
+# Don't leave root-owned __pycache__ in pi's folder
+Environment=PYTHONDONTWRITEBYTECODE=1
 WorkingDirectory=/home/pi/workspace/TrainTime/display_control
 # Runs the mode set by DISPLAY_MODE in display_control/.env (changed by the web UI)
 ExecStart=/usr/bin/python3 main.py
