@@ -32,7 +32,7 @@
       {% if first_picture %}<img class="panel-img" src="/pictures/img/{{ first_picture }}/thumb" alt="">
       {% else %}<div class="panel-img placeholder">No pictures yet</div>{% endif %}
     {% else %}
-      <img class="panel-img" src="/preview/{{ mode_id }}_{{ panel }}.png" alt="">
+      <img class="panel-img" src="/preview/{{ mode_id }}_{{ panel }}.png?v={{ version }}" alt="">
     {% endif %}
     {% if current_mode == mode_id %}<span class="on">On</span>{% endif %}
     <div class="name">{{ mode_info.name }}</div>
@@ -40,4 +40,46 @@
   </a>
   {% endfor %}
 </div>
+
+<h2 id="settings">Mode settings</h2>
+<form method="post" action="/settings/modes">
+  <div class="card">
+    <div class="status-label">Ambient Colors</div>
+    <p class="hint">Tap the palettes to cycle through. None selected = all.</p>
+    <div class="palettes">
+      {% for name, gradient, on in palettes %}
+      <label class="pal"><input type="checkbox" name="palette" value="{{ name }}" {{ 'checked' if on }}>
+        <span class="swatch" style="background: {{ gradient }}" {% if name == 'custom' %}id="customswatch"{% endif %}></span>
+        <span>{{ name|capitalize }}</span></label>
+      {% endfor %}
+    </div>
+    <label>Custom palette</label>
+    <div class="row colorpick">{% for c in custom %}<input type="color" name="custom" value="{{ c }}" oninput="updateCustom()">{% endfor %}</div>
+    <label>Minutes per palette</label>
+    <input type="number" name="minutes" min="0.5" max="120" step="0.5" value="{{ colors_minutes }}">
+  </div>
+  <div class="card">
+    <div class="status-label">Fireplace</div>
+    <label>Burn down to embers at (until 6:00), empty = always burning</label>
+    <input type="time" name="bedtime" value="{{ fire_bedtime }}">
+  </div>
+  <button class="btn" type="submit">Save</button>
+</form>
+<style>
+  .palettes { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; margin-top: 10px; }
+  .pal { margin: 0; display: flex; flex-direction: column; gap: 6px; color: var(--text); font-size: 14px; cursor: pointer; }
+  .pal input { position: absolute; opacity: 0; pointer-events: none; }
+  .pal .swatch { height: 44px; border-radius: 12px; border: 3px solid transparent; outline: 1px solid var(--line); }
+  .pal input:checked + .swatch { border-color: var(--accent); }
+  .pal input:not(:checked) + .swatch { opacity: .45; }
+  .colorpick input { height: 44px; padding: 2px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  input[type=time] { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; font: inherit;
+                     background: var(--card); color: var(--text); }
+</style>
+<script>
+function updateCustom() {
+  const cs = [...document.querySelectorAll('.colorpick input')].map(i => i.value);
+  document.getElementById('customswatch').style.background = `linear-gradient(90deg, ${[...cs, cs[0]].join(', ')})`;
+}
+</script>
 {% endblock %}

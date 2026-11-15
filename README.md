@@ -9,6 +9,9 @@ modes, and you switch between them from a small web page on the Pi.
 | Power Flow | ![](display_control/previews/power_64x32.png) | ![](display_control/previews/power_32x32.png) |
 | Departures | ![](display_control/previews/departures_64x32.png) | ![](display_control/previews/departures_32x32.png) |
 | Sky Clock | ![](display_control/previews/sky_64x32.gif) | ![](display_control/previews/sky_32x32.gif) |
+| Weather | ![](display_control/previews/weather_64x32.png) | ![](display_control/previews/weather_32x32.png) |
+| Fireplace | ![](display_control/previews/fire_64x32.gif) | ![](display_control/previews/fire_32x32.gif) |
+| Ambient Colors | ![](display_control/previews/colors_64x32.gif) | ![](display_control/previews/colors_32x32.gif) |
 | Sky Clock day | ![](display_control/previews/sky_day_64x32.png) | ![](display_control/previews/sky_day_32x32.png) |
 | Sky Clock weather | ![](display_control/previews/sky_weather_64x32.png) | ![](display_control/previews/sky_weather_32x32.png) |
 
@@ -20,6 +23,9 @@ modes, and you switch between them from a small web page on the Pi.
 | Power Flow | `power_display.py` | Live solar / grid / house power from Home Assistant, with animated arrows showing where the power flows |
 | Sky Clock | `sky_display.py` | The real sky over your location with a white clock: colours follow the sun (night, dawn, day, dusk), sun and moon (with its current phase) move to their real positions, stars and the odd shooting star, houses lit at night. The current weather from [Open-Meteo](https://open-meteo.com) (free, no key): as many clouds as outside, grey skies, rain, snow, fog, lightning. Without internet it shows fair weather |
 | Pictures | `picture_display.py` | Slideshow of your photos, managed on the web UI's Pictures page: upload, choose the part to show (per panel size), tick which to show, order. Slides in from the right (or crossfades); interval adjustable. Photos stay on the Pi (`display_control/pictures/`, gitignored) |
+| Weather | `weather_display.py` | Current temperature and weather icon, today's high/low, and a 24-hour temperature curve (coloured cold blue to warm orange, night hours shaded) with the rain chance as a blue band. Open-Meteo, no key; location from the System page |
+| Fireplace | `fire_display.py` | A crackling fire in a brick fireplace with glowing logs and sparks. Set `FIRE_BEDTIME` to let it burn down to embers at night |
+| Ambient Colors | `colors_display.py` | Soft colour gradients flowing slowly across the panel; the palette (aurora, sunset, ocean, lavender, forest) changes every few minutes |
 | Departures | `departures_display.py` | Next buses/trams/trains from an RMV stop (default: Darmstadt Luisenplatz towards Hbf and Lichtwiese), real-time minutes; yellow = late, red X = cancelled |
 
 One mode runs at a time, as the systemd service `traintime.service`. It runs `main.py`, which starts
@@ -145,12 +151,14 @@ Everything goes in `display_control/.env`, which is gitignored. The template is
 
 | Variable | Used by | Meaning |
 |---|---|---|
-| `DISPLAY_MODE` | all | Mode to show: `christmas`, `power`, `departures`, `sky`, `picture` (Modes page) |
+| `DISPLAY_MODE` | all | Mode to show: `christmas`, `power`, `departures`, `sky`, `picture`, `weather`, `fire`, `colors` (Modes page) |
 | `LED_PANEL` | all modes | `64x32` (default) or `32x32` |
 | `LED_GPIO_SLOWDOWN` | all modes | Empty = auto by Pi model. Raise it if the image glitches |
 | `LED_BRIGHTNESS` | all modes | Percent (default 80). Lower it if the power supply struggles |
-| `SKY_LAT` / `SKY_LON` / `SKY_PLACE` | Sky Clock | Location for sun, moon and weather (default Darmstadt); set on the System page |
+| `SKY_LAT` / `SKY_LON` / `SKY_PLACE` | Sky Clock, Weather | Location for sun, moon and weather (default Darmstadt); set on the System page |
 | `SKY_WEATHER` | Sky Clock | `1` = live weather from open-meteo.com, `0` = always fair weather |
+| `FIRE_BEDTIME` | Fireplace | `HH:MM`: burn down to embers until 6:00; empty = always burning |
+| `COLORS_MINUTES` | Ambient Colors | Minutes per palette (default 3) |
 | `PICTURE_SECONDS` / `PICTURE_TRANSITION` | Pictures | Seconds per picture; `slide`, `fade` or `cut` |
 | `HA_URL` | Power Flow | e.g. `http://homeassistant.local:8123` |
 | `HA_TOKEN` | Power Flow | Home Assistant long-lived access token |
@@ -225,6 +233,9 @@ display_control/
   picture_display.py     Pictures mode
   pictures.py            picture library (uploads, crops) shared by web UI and Pictures mode
   pictures/              your photos + library.json (gitignored)
+  weather_display.py     Weather mode (Open-Meteo forecast)
+  fire_display.py        Fireplace mode
+  colors_display.py      Ambient Colors mode
   sky_display.py         Sky Clock mode (sun/moon maths ported from suncalc.js, weather from Open-Meteo)
   main.py                entry point of traintime.service: starts the mode set by DISPLAY_MODE
   utils.py               panel presets, Display (size-aware drawing), icons, shared run loop

@@ -71,6 +71,20 @@ def sample_power(solar, grid):
     return types.SimpleNamespace(solar=solar, grid=grid, home=solar + grid, error=None)
 
 
+def sample_weather():
+    """A mild autumn day with rain in the evening."""
+    from weather_display import parse
+    temps = [9, 10, 11, 12, 13, 13, 12, 11, 10, 9, 9, 8, 8, 7, 7, 6, 6, 6, 5, 5, 6, 7, 8, 9, 10, 11]
+    rain = [0, 0, 0, 0, 10, 20, 40, 70, 80, 60, 30, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    hours = [f"2026-11-15T{(10 + i) % 24:02d}:00" if 10 + i < 24 else f"2026-11-16T{(10 + i) % 24:02d}:00"
+             for i in range(len(temps))]
+    raw = {"current": {"temperature_2m": 9.4, "weather_code": 2, "is_day": 1},
+           "daily": {"temperature_2m_max": [13.2], "temperature_2m_min": [5.1]},
+           "hourly": {"time": hours, "temperature_2m": temps, "precipitation_probability": rain,
+                      "is_day": [1 if 7 <= (10 + i) % 24 < 17 else 0 for i in range(len(temps))]}}
+    return types.SimpleNamespace(data=parse(raw, now=datetime(2026, 11, 15, 10, 5)), error=None)
+
+
 def sample_departures():
     import departures_display as dd
     now = datetime.now(dd.RMV_TZ).replace(second=0, microsecond=0)
@@ -178,6 +192,31 @@ def render(mode, size, out_dir, frames_for_gif=0):
         from departures_display import Departures
         m = Departures(d, source=sample_departures())
         warmup = 1
+    elif mode == "weather":
+        from weather_display import Weather, parse
+        m = Weather(d, source=sample_weather())
+        warmup = 3
+    elif mode == "fire":
+        from fire_display import Fire
+        clock = {"t": 0.0}
+        m = Fire(d, clock=lambda: clock["t"])
+        orig_fire = m.frame
+        def fire_step():
+            clock["t"] += 1 / m.fps
+            orig_fire()
+        m.frame = fire_step
+        warmup = 60
+    elif mode == "colors":
+        from colors_display import Colors
+        clock = {"t": 0.0}
+        m = Colors(d, clock=lambda: clock["t"])
+        m.fps = 10
+        orig = m.frame
+        def step():
+            clock["t"] += 4.0                      # speed up 40x for the preview
+            orig()
+        m.frame = step
+        warmup = 20
     elif mode == "wifi":
         m = utils.WifiSetupScreen(d, "pidisplay-setup", "k3x9m2qa", "10.42.0.1")
         m.fps = 15
@@ -201,16 +240,16 @@ def render(mode, size, out_dir, frames_for_gif=0):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--size", choices=[*PANEL_PRESETS, "all"], default="all")
-    parser.add_argument("--mode", choices=["christmas", "power", "departures", "sky", "wifi", "all"], default="all")
+    parser.add_argument("--mode", choices=["christmas", "power", "departures", "sky", "weather", "fire", "colors", "wifi", "all"], default="all")
     parser.add_argument("--gif", action="store_true", help="also write animated GIFs (christmas, sky time-lapse)")
     args = parser.parse_args()
     out_dir = HERE / "previews"
     out_dir.mkdir(exist_ok=True)
     sizes = list(PANEL_PRESETS) if args.size == "all" else [args.size]
-    modes = ["christmas", "power", "departures", "sky", "wifi"] if args.mode == "all" else [args.mode]
+    modes = ["christmas", "power", "departures", "sky", "weather", "fire", "colors", "wifi"] if args.mode == "all" else [args.mode]
     for size in sizes:
         for mode in modes:
-            render(mode, size, out_dir, frames_for_gif=80 if (args.gif and mode in ("christmas", "sky", "power")) else 0)
+            render(mode, size, out_dir, frames_for_gif=80 if (args.gif and mode in ("christmas", "sky", "power", "fire", "colors")) else 0)
 
 
 if __name__ == "__main__":

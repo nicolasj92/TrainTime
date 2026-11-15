@@ -26,6 +26,7 @@ from dotenv import dotenv_values
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
 from PIL import Image, ImageOps
 
+import color_palettes
 import pictures as library
 
 HERE = Path(__file__).resolve().parent
@@ -60,6 +61,18 @@ DISPLAY_MODES = {
     'picture': {
         'name': 'Pictures',
         'description': 'Your photos (slideshow)'
+    },
+    'weather': {
+        'name': 'Weather',
+        'description': 'Temperature, rain and the next 24 hours'
+    },
+    'fire': {
+        'name': 'Fireplace',
+        'description': 'A crackling fire for cosy evenings'
+    },
+    'colors': {
+        'name': 'Ambient Colors',
+        'description': 'Slowly flowing colour gradients'
     }
 }
 
@@ -156,11 +169,33 @@ def captive_portal():
 def index():
     e = env()
     shown = [p for p in library.load()['pictures'] if p.get('enabled', True)]
+    chosen = [n for n in (e.get('COLORS_PALETTES') or '').split(',') if n] or list(color_palettes.PALETTES)
+    custom = color_palettes.parse_colors(e.get('COLORS_CUSTOM') or color_palettes.DEFAULT_CUSTOM)
+    palettes = [(name, color_palettes.css_gradient(c), name in chosen) for name, c in color_palettes.PALETTES.items()]
+    palettes.append(('custom', color_palettes.css_gradient(custom), 'custom' in chosen))
     return render_template('control.html', page='modes', current_mode=get_current_mode(),
-                           first_picture=shown[0]['id'] if shown else None,
+                           first_picture=shown[0]['id'] if shown else None, version=current_version(),
+                           palettes=palettes, custom=['#%02x%02x%02x' % c for c in custom],
+                           colors_minutes=e.get('COLORS_MINUTES') or '3', fire_bedtime=e.get('FIRE_BEDTIME') or '',
                            service_status=get_service_status(), modes=DISPLAY_MODES,
                            panel=e.get('LED_PANEL') or '64x32',
                            notice=request.args.get('msg'), notice_error=request.args.get('err'))
+
+
+@app.route('/settings/modes', methods=['POST'])
+def mode_settings():
+    """Ambient Colors palettes and Fireplace bedtime (Modes page)."""
+    f = request.form
+    names = [n for n in f.getlist('palette') if n in color_palettes.PALETTES or n == 'custom']
+    custom = ','.join('#%02x%02x%02x' % c for c in color_palettes.parse_colors(','.join(f.getlist('custom'))))
+    bedtime = f.get('bedtime', '')
+    minutes = max(0.5, min(120, float(f.get('minutes') or 3)))
+    update_env({'COLORS_PALETTES': ','.join(names), 'COLORS_CUSTOM': custom,
+                'COLORS_MINUTES': f'{minutes:g}',
+                'FIRE_BEDTIME': bedtime if re.fullmatch(r'\d{2}:\d{2}', bedtime) else ''})
+    if get_current_mode() in ('colors', 'fire'):
+        restart_display()
+    return redirect(url_for('index', msg='Saved.') + '#settings')
 
 
 @app.route('/switch/<mode>')
