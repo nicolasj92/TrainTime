@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Fireplace mode: a calm fire in a brick fireplace, for cosy evenings.
+Fireplace mode: a calm fire filling the whole panel, for cosy evenings.
 
 The flames are drawn, not simulated: a few teardrop-shaped flame tongues sit on the logs.
 Each one slowly grows, shrinks and sways (smooth, unhurried motion), and a soft turbulence
 pattern drifting upwards breaks up their edges. Heat is coloured from deep red over orange
-to a yellow-white core. Embers glow on the logs, sparks rise now and then, and the bricks
-and hearth catch the firelight.
+to a yellow-white core. Embers glow on the logs, sparks rise now and then, and a faint warm
+glow lights the dark behind the flames.
 
 FIRE_BEDTIME (e.g. 23:00, empty = never): from then on the fire burns down over half an hour
 to glowing embers, and comes back at 6:00.
@@ -72,10 +72,10 @@ class Fire:
         self.W, self.H = W, H
         wide = display.wide
         self.palette = palette()
-        self.side = 7 if wide else 3
-        self.top = 4 if wide else 3
-        self.hearth = H - 3
-        self.logs_y = self.hearth - 3
+        self.side = 0                                   # full screen: no fireplace surround
+        self.top = 0
+        self.hearth = H
+        self.logs_y = H - 3
         self.base = self.logs_y - 1                      # flames stand on the logs
         yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
         self.xx, self.yy = xx, yy
@@ -83,17 +83,17 @@ class Fire:
         rnd = random.Random(3)
         # Flame tongues: centre x, half width at the base, height; the middle ones tallest
         inner = W - 2 * self.side
-        count = 8 if wide else 4
+        count = 10 if wide else 5
         self.tongues = []
         for i in range(count):                          # overlapping, irregular tongues
             frac = (i + 0.5) / count
             middle = 1 - abs(frac - 0.5) * 1.7
             self.tongues.append({
-                "x": self.side + inner * (0.1 + 0.8 * frac) + rnd.uniform(-1.5, 1.5),
+                "x": inner * (0.04 + 0.92 * frac) + rnd.uniform(-1.5, 1.5),
                 "w": (4.2 if wide else 3.0) * rnd.uniform(0.75, 1.2),
-                "h": (self.base - self.top) * (0.4 + 0.55 * middle) * rnd.uniform(0.8, 1.15),
+                "h": (self.base - self.top) * (0.65 + 0.45 * middle) * rnd.uniform(0.85, 1.1),
                 "seed": rnd.uniform(0, 100)})
-        self.bed = (self.side + 3, W - self.side - 4)   # glowing bed of flame along the logs
+        self.bed = (1, W - 2)                           # glowing bed of flame along the logs
         self.background = self._build_background()
         self.logs = self._build_logs()
         self.embers = [(x, y, rnd.uniform(0, 100)) for x, y, _ in self.logs[::4]]
@@ -105,37 +105,22 @@ class Fire:
     # --- static parts ---
 
     def _build_background(self):
-        W, H = self.W, self.H
-        img = np.zeros((H, W, 3), dtype=np.float32)
-        rnd = random.Random(5)
-        brick, mortar = (50, 21, 15), (15, 9, 8)
-        for y in range(H):
-            for x in range(W):
-                inside = self.side <= x < W - self.side and self.top <= y < self.hearth
-                if inside:
-                    depth = (y - self.top) / max(1, self.hearth - self.top)
-                    img[y, x] = (5 + 4 * depth, 2 + 2 * depth, 2)          # sooty back wall
-                elif y % 3 == 2 or (x + (3 if (y // 3) % 2 else 0)) % 7 == 6:
-                    img[y, x] = mortar
-                else:
-                    shade = rnd.uniform(0.75, 1.15)
-                    img[y, x] = [c * shade for c in brick]
-        for y in range(self.hearth, H):
-            for x in range(W):
-                img[y, x] = (40, 38, 40) if (x // 5 + y) % 2 else (33, 31, 33)
-        img[self.top - 1, self.side - 1:W - self.side + 1] = (72, 36, 25)   # lintel
+        """Dark, with a faint warm haze rising from the bottom."""
+        depth = (np.arange(self.H, dtype=np.float32) / (self.H - 1)) ** 2
+        img = np.zeros((self.H, self.W, 3), dtype=np.float32)
+        img[:] = (depth[:, None, None] * np.array((14, 4, 1), dtype=np.float32))
         return img
 
     def _build_logs(self):
         pixels = []
-        x0, x1 = self.side + 2, self.W - self.side - 3
+        x0, x1 = 1, self.W - 2
         mid = (x0 + x1) // 2
         for x in range(x0, x1 + 1):
             for dy, color in ((0, (84, 48, 24)), (1, (62, 34, 17)), (2, (40, 21, 11))):
                 pixels.append((x, self.logs_y + dy, color))
         for x in (x0, x1):                              # cut ends of the log, lighter wood
             pixels.append((x, self.logs_y + 1, (120, 80, 45)))
-        half = 10 if self.d.wide else 5
+        half = 16 if self.d.wide else 8
         for x in range(mid - half, mid + half + 1):    # second log across the first
             pixels.append((x, self.logs_y - 1, (92, 54, 28)))
         return pixels
@@ -202,11 +187,8 @@ class Fire:
         fire = self.palette[(heat * 255).astype(np.uint8)]
         img[self.inside] = np.maximum(img[self.inside], fire[self.inside])
 
-        # firelight on bricks and hearth, gently flickering
+        # firelight on the logs, gently flickering
         glow = (0.7 + 0.15 * wobble(t * 2.1, 1) + 0.15 * wobble(t * 3.3, 2)) * strength
-        img[self.hearth:] += np.array((38, 15, 4)) * glow
-        img[:, :self.side] += np.array((20, 7, 2)) * glow
-        img[:, self.W - self.side:] += np.array((20, 7, 2)) * glow
 
         for x, y, color in self.logs:
             img[y, x] = np.array(color) * (0.8 + 0.5 * glow)
