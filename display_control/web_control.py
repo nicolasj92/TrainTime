@@ -50,6 +50,11 @@ DISPLAY_MODES = {
         'name': 'Sky Clock',
         'description': 'Real sun, moon and stars over your location',
         'script': 'sky_display.py'
+    },
+    'picture': {
+        'name': 'Pictures',
+        'description': 'Your photos (slideshow)',
+        'script': 'picture_display.py'
     }
 }
 

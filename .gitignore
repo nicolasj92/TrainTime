@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 *.bak
 .env
+display_control/pictures/*
+!display_control/pictures/.gitkeep

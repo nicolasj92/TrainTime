@@ -17,6 +17,7 @@ modes, and you switch between them from a small web page on the Pi.
 | Christmas Snow | `christmas_display.py` | Clock with falling snow that piles up on the ground and roofs, melts slowly and gets cleared by a passing snowplow |
 | Power Flow | `power_display.py` | Live solar / grid / house power from Home Assistant, with animated arrows showing where the power flows |
 | Sky Clock | `sky_display.py` | The real sky over your location: colours follow the sun (night, dawn, day, dusk), sun and moon (with its current phase) move to their real positions, twinkling stars and the odd shooting star, clouds by day, houses lit at night. Calculated on the Pi, no internet needed |
+| Pictures | `picture_display.py` | Photos from `display_control/pictures/` as a slideshow. Name files `…_64x32.png` / `…_32x32.png` to use your own crop per panel size, otherwise they're centre-cropped. The folder is gitignored (private photos); copy pictures to each Pi yourself |
 | Departures | `departures_display.py` | Next buses/trams/trains from an RMV stop (default: Darmstadt Luisenplatz towards Hbf and Lichtwiese), real-time minutes; yellow = late, red X = cancelled |
 
 One mode runs at a time, as the systemd service `traintime.service`.
@@ -184,6 +185,7 @@ display_control/
   christmas_display.py   Christmas Snow mode
   power_display.py       Power Flow mode (Home Assistant)
   departures_display.py  Departures mode (RMV)
+  picture_display.py     Pictures mode (+ pictures/, gitignored)
   sky_display.py         Sky Clock mode (sun/moon maths ported from suncalc.js)
   utils.py               panel presets, Display (size-aware drawing), icons, shared run loop
   web_control.py         web UI on :5000: modes, departures settings, Wi-Fi (+ templates/)
