@@ -12,6 +12,7 @@ Settings are stored in display_control/.env; the display service is restarted to
 import json
 import os
 import re
+import socket
 import subprocess
 from pathlib import Path
 
@@ -246,6 +247,10 @@ def api_rmv_lines():
 
 # --- Wi-Fi -------------------------------------------------------------------------
 
+def setup_ssid():
+    return (env().get('WIFI_SETUP_SSID') or f'{socket.gethostname()}-setup')[:32]
+
+
 def visible_networks():
     """Networks seen in the last scan (the radio can't scan while it's the hotspot)."""
     if hotspot():
@@ -292,12 +297,13 @@ def wifi():
         if r.returncode != 0:
             notice, notice_error = f"Couldn't save: {r.stderr.strip() or r.stdout.strip()}", True
         elif state:
-            return render_template('wifi_connecting.html', page='wifi', ssid=request.form['ssid'])
+            return render_template('wifi_connecting.html', page='wifi', ssid=request.form['ssid'],
+                                   setup_ssid=state['ssid'])
         else:
             notice = f"Saved {request.form['ssid']}. The Pi prefers it whenever it's in range."
     return render_template('wifi.html', page='wifi', notice=notice, notice_error=notice_error,
                            hotspot=state, networks=visible_networks(), saved=saved_networks(),
-                           current=None if state else current_network())
+                           current=None if state else current_network(), setup_ssid=setup_ssid())
 
 
 if __name__ == '__main__':

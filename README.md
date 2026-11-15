@@ -43,7 +43,7 @@ rule (`deploy/sudoers/display-control`) lets user `pi` run exactly those command
 If the Pi has no Wi-Fi (or Ethernet) for `WIFI_FALLBACK_MINUTES` (default 3), for example in a new home or
 after a router change, it opens a hotspot:
 
-1. The panel shows **WiFi setup**, the hotspot name `pidisplay-setup`, its password and `10.42.0.1`
+1. The panel shows **WiFi setup**, the hotspot name (`<hostname>-setup`, e.g. `pidisplay-setup`), its password and `10.42.0.1`
 2. Join that network with your phone. The setup page should open by itself; if not, open `http://10.42.0.1`
 3. Pick your network, enter its password, and tap **Connect**. The hotspot closes, and the display goes back to normal once it's online
 
@@ -63,7 +63,7 @@ Test it without unplugging anything: `sudo systemctl stop wifi-fallback && sudo 
 
 ## Hardware
 
-- Raspberry Pi 3, 4 or 5 running Raspberry Pi OS Bookworm (64-bit)
+- Raspberry Pi 3, 4 or 5 running Raspberry Pi OS **Trixie** (Debian 13, 64-bit). Bookworm works too.
 - 32×32 HUB75 panels: two chained for 64×32 (`LED_PANEL=64x32`, the default), or one for 32×32 (`LED_PANEL=32x32`)
 - RGB matrix HAT/adapter, with the panels on its **second** output, and a 5 V supply big enough for the panels
 
@@ -77,22 +77,28 @@ minutes longer.
 
 ## Install on a new Pi
 
-As user `pi` on a fresh Raspberry Pi OS Bookworm:
-
-```bash
-sudo apt-get install -y git
-git clone https://github.com/nicolasj92/TrainTime.git ~/workspace/TrainTime
-~/workspace/TrainTime/deploy/install.sh
-nano ~/workspace/TrainTime/display_control/.env     # see Configuration
-sudo systemctl restart traintime
-```
+1. Flash Raspberry Pi OS Trixie (64-bit) with Raspberry Pi Imager. In its settings, set the hostname,
+   user `pi`, your Wi-Fi, and enable SSH with your public key.
+2. Give `pi` passwordless sudo. Trixie no longer does this by default, and the web UI and remote
+   maintenance need it:
+   ```bash
+   echo "pi ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/010_pi-nopasswd && sudo chmod 440 /etc/sudoers.d/010_pi-nopasswd
+   ```
+3. Get the repo to `~/workspace/TrainTime`. It's private, so either `gh auth login` on the Pi and clone, or
+   copy it from a computer that has it: `rsync -a --exclude .env TrainTime/ <pi>:workspace/TrainTime/`
+4. Install. Set `LED_PANEL` for a 32×32 panel; 64×32 is the default:
+   ```bash
+   LED_PANEL=32x32 ~/workspace/TrainTime/deploy/install.sh
+   sudo reboot                                          # needed once, for the audio setting
+   ```
+5. Open `http://<hostname>.local:5000` for keys and stations (or edit `display_control/.env`).
 
 `deploy/install.sh` is safe to re-run. It:
 
 1. installs apt packages from `deploy/apt-packages.txt` (Pillow, numpy, requests, Flask, python-dotenv, build tools). Everything runs on the system `python3`, with no venv.
 2. builds [rpi-rgb-led-matrix](https://github.com/hzeller/rpi-rgb-led-matrix) at a pinned commit in `~/workspace/rpi-rgb-led-matrix` and installs its Python bindings
 3. copies `display_control/fonts/*.bdf` to `/usr/share/fonts/bdf`. The LED library drops root privileges to user `daemon` before fonts load, and that user can't read `/home/pi`.
-4. sets `dtparam=audio=off` in `/boot/firmware/config.txt`, because onboard audio conflicts with the matrix (you then need to reboot)
+4. turns off onboard audio, which conflicts with the matrix: `dtparam=audio=off` in `/boot/firmware/config.txt`, plus blacklisting `snd_bcm2835` (needed on Trixie). You then need to reboot once
 5. creates `display_control/.env` from `.env.example`, or adds any new settings to an existing one
 6. installs the sudoers rule
 7. installs the Wi-Fi fallback (helper scripts, captive-portal DNS rule) and generates the hotspot password

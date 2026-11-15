@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Set up a fresh Raspberry Pi OS (Bookworm) Pi as a TrainTime LED matrix display.
+# Set up a fresh Raspberry Pi OS Trixie (or Bookworm) Pi as a TrainTime LED matrix display.
+# Needs passwordless sudo for user pi (see README).
 # Safe to re-run. Usage (as user pi):
 #   git clone https://github.com/nicolasj92/TrainTime.git ~/workspace/TrainTime
 #   ~/workspace/TrainTime/deploy/install.sh
+# Optional: LED_PANEL=32x32 ~/workspace/TrainTime/deploy/install.sh   (sets the panel size in .env)
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,8 +17,9 @@ LED_COMMIT="d10f518f291bd34ca4816ef25cadf2446b882662"   # version running on the
   echo "WARNING: service files expect /home/pi/workspace/TrainTime (repo is at $REPO_DIR)"
 
 echo "==> apt packages"
-sudo apt-get update
-sudo apt-get install -y $(grep -v '^#' "$DEPLOY/apt-packages.txt")
+export DEBIAN_FRONTEND=noninteractive
+sudo -E apt-get update
+sudo -E apt-get install -y $(grep -v '^#' "$DEPLOY/apt-packages.txt")
 
 echo "==> rpi-rgb-led-matrix (lib + python bindings)"
 [[ -d "$LED_DIR/.git" ]] || git clone https://github.com/hzeller/rpi-rgb-led-matrix.git "$LED_DIR"
@@ -38,6 +41,12 @@ elif ! grep -q '^dtparam=audio=off' "$CFG"; then
   echo 'dtparam=audio=off' | sudo tee -a "$CFG" >/dev/null; REBOOT=1
 fi
 
+# On Trixie the module still loads despite dtparam=audio=off, so blacklist it too
+BLACKLIST=/etc/modprobe.d/blacklist-rgb-matrix.conf
+if [[ ! -f "$BLACKLIST" ]]; then
+  echo "blacklist snd_bcm2835" | sudo tee "$BLACKLIST" >/dev/null; REBOOT=1
+fi
+
 echo "==> .env"
 ENV="$REPO_DIR/display_control/.env"
 if [[ ! -f "$ENV" ]]; then
@@ -51,6 +60,11 @@ else
       echo "$line" >> "$ENV"; echo "    added $key to .env"
     fi
   done < "$REPO_DIR/display_control/.env.example"
+fi
+
+if [[ -n "${LED_PANEL:-}" ]]; then
+  sed -i "s/^LED_PANEL=.*/LED_PANEL=$LED_PANEL/" "$ENV"
+  echo "    panel size: $LED_PANEL"
 fi
 
 echo "==> sudoers (lets the web UI restart the display service)"

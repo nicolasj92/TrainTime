@@ -8,7 +8,7 @@ Pick your network and enter its password.</p>
 {% else %}
 <p class="subtitle">Connected to <b>{{ current or 'Ethernet' }}</b>. Networks added here are preferred whenever
 they're in range. If none works for a few minutes, the display opens the setup hotspot
-<b>pidisplay-setup</b> (password shown on the panel).</p>
+<b>{{ setup_ssid }}</b> (password shown on the panel).</p>
 {% endif %}
 
 <form method="post">

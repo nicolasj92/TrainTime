@@ -3,7 +3,7 @@
 Wi-Fi fallback daemon (runs as root via wifi-fallback.service).
 
 If the Pi has no Wi-Fi or Ethernet connection for WIFI_FALLBACK_MINUTES, it starts the
-access point "pidisplay-setup" (NetworkManager shared mode, Pi at 10.42.0.1). Phones that join
+access point "<hostname>-setup" (NetworkManager shared mode, Pi at 10.42.0.1). Phones that join
 are sent to the setup page of the web UI (DNS answers everything with 10.42.0.1, and port 80
 is redirected to 5000).
 
@@ -21,6 +21,7 @@ State for the display and web UI goes to /run/pidisplay/hotspot.json (exists = h
 """
 
 import json
+import socket
 import os
 import subprocess
 import sys
@@ -52,7 +53,7 @@ def load_env():
 
 
 ENV = load_env()
-SSID = ENV.get("WIFI_SETUP_SSID") or "pidisplay-setup"
+SSID = (ENV.get("WIFI_SETUP_SSID") or f"{socket.gethostname()}-setup")[:32]
 PASSWORD = ENV.get("WIFI_SETUP_PASSWORD") or ""
 FALLBACK_MINUTES = float(ENV.get("WIFI_FALLBACK_MINUTES") or 3)
 RETRY_MINUTES = float(ENV.get("WIFI_RETRY_MINUTES") or 10)
@@ -121,9 +122,13 @@ def ensure_hotspot_profile():
     nmcli("connection", "delete", HOTSPOT_CON)
     nmcli("connection", "add", "type", "wifi", "ifname", IFACE, "con-name", HOTSPOT_CON,
           "autoconnect", "no", "ssid", SSID,
-          "802-11-wireless.mode", "ap", "802-11-wireless.band", "bg",
+          "802-11-wireless.mode", "ap", "802-11-wireless.band", "bg", "802-11-wireless.channel", "6",
           "ipv4.method", "shared", "ipv4.addresses", f"{AP_IP}/24", "ipv6.method", "disabled",
-          "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", PASSWORD, check=True)
+          "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", PASSWORD,
+          # WPA2-CCMP only and PMF off: the Pi 3's brcmfmac chip can't start an AP otherwise
+          # (fails with "supplicant-timeout" on Trixie / wpa_supplicant 2.10)
+          "wifi-sec.proto", "rsn", "wifi-sec.pairwise", "ccmp", "wifi-sec.group", "ccmp",
+          "wifi-sec.pmf", "disable", check=True)
 
 
 def portal(enable):
@@ -221,9 +226,13 @@ def daemon():
 def test(seconds):
     log(f"Test: hotspot for {seconds} s")
     RUN_DIR.mkdir(mode=0o755, exist_ok=True)
-    start_hotspot()
-    time.sleep(seconds)
-    try_known_networks()
+    try:
+        start_hotspot()
+        time.sleep(seconds)
+    except Exception as e:
+        log(f"Hotspot failed: {e}")
+    finally:
+        try_known_networks()
 
 
 if __name__ == "__main__":
